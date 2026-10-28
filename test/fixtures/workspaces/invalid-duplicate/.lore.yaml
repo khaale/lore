@@ -1,0 +1,7 @@
+name: duplicate
+classes:
+  Item: { slots: [id, kind] }
+  Other: { slots: [id, kind] }
+slots:
+  id: { range: string, identifier: true }
+  kind: { range: string, designates_type: true }

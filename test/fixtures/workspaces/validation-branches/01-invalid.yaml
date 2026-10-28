@@ -1,0 +1,10 @@
+id: invalid
+kind: Child
+code: distinct
+any_value: neither
+all_value: apple
+none_value: forbidden
+exactly_value: x
+due: 2026-99-99
+quantity: nope
+score: 11

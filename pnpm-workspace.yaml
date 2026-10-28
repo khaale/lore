@@ -1,0 +1,12 @@
+packages:
+  # Include the public root package in Changesets discovery.
+  - .
+  - packages/*
+  - apps/*
+
+# Keep pnpm from substituting a different package manager or silently accepting
+# a version other than the exact packageManager declaration in package.json.
+managePackageManagerVersions: false
+packageManagerStrict: true
+packageManagerStrictVersion: true
+engineStrict: true

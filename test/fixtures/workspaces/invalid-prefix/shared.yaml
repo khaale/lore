@@ -1,0 +1,5 @@
+name: conflicting
+prefixes:
+  ex: https://two.example/
+classes: {}
+slots: {}

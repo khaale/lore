@@ -1,0 +1,102 @@
+id: https://example.org/basic
+name: basic
+default_range: string
+imports: [shared.yaml, linkml:types]
+classes:
+  Base:
+    description: Shared base class
+    from_schema: https://example.org/basic
+    abstract: false
+    slots: [base_note]
+  Mixin:
+    description: Shared mixin
+    from_schema: https://example.org/basic
+    mixin: true
+    slots: [mixin_note]
+  Thing:
+    description: A basic indexed artifact
+    class_uri: basic:Thing
+    from_schema: https://example.org/basic
+    is_a: Base
+    mixins: [Mixin]
+    abstract: false
+    mixin: false
+    slots:
+      [id, kind, title, score, status, tags, base_note, mixin_note, related, related_from, detail]
+    attributes:
+      local_note:
+        range: string
+        description: An attribute declaration
+    slot_usage:
+      title:
+        required: true
+    unique_keys:
+      by_title:
+        unique_key_slots: [title]
+    extra_slots:
+      allowed: true
+  Detail:
+    from_schema: https://example.org/basic
+    slots: [detail_label]
+slots:
+  id:
+    range: string
+    identifier: true
+  kind:
+    range: string
+    designates_type: true
+  title:
+    range: string
+    recommended: true
+    description: Display title
+    slot_uri: basic:title
+  base_note:
+    range: string
+  mixin_note:
+    range: string
+  local_note:
+    range: string
+  score:
+    range: integer
+    minimum_value: 0
+    maximum_value: 100
+    minimum_cardinality: 0
+    maximum_cardinality: 1
+    exact_cardinality: 1
+  status:
+    range: Status
+    any_of:
+      - equals_string: active
+      - equals_string: archived
+    all_of:
+      - equals_string_in: [active, archived]
+    none_of:
+      - equals_string: retired
+    exactly_one_of:
+      - equals_string: active
+      - equals_string: archived
+  tags:
+    range: string
+    multivalued: true
+    pattern: '^[a-z]+$'
+  related:
+    range: Thing
+    inverse: related_from
+    annotations:
+      'lore:explore_relation': dependency
+  related_from:
+    range: Thing
+  detail:
+    range: Detail
+    inlined: true
+  detail_label:
+    range: string
+types:
+  Identifier:
+    typeof: string
+    pattern: '^[a-z0-9-]+$'
+enums:
+  Status:
+    permissible_values:
+      active: Active
+      archived: Archived

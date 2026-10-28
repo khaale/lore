@@ -1,0 +1,18 @@
+id: https://example.org/watch-external
+name: watch-external
+default_range: string
+imports: [shared.yaml, linkml:types]
+classes:
+  Thing:
+    class_uri: watch-external:Thing
+    slots: [id, kind, title]
+slots:
+  id:
+    range: string
+    identifier: true
+  kind:
+    range: string
+    designates_type: true
+  title:
+    range: string
+    required: true

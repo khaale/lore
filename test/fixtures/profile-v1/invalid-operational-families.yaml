@@ -1,0 +1,20 @@
+id: https://example.org/invalid-operational
+classes:
+  Thing:
+    slots: [value]
+    open_world: true
+    bidirectional: true
+    classification_rules:
+      - is_a: OtherThing
+    extra_slots:
+      allowed: false
+      range_expression: { range: string }
+slots:
+  value:
+    range: string
+    equals_expression: value
+    transitive: true
+    member_constraints: [{ equals_string: x }]
+    reachable_from: Thing
+    dynamic_enum: { values: [x] }
+    lore:unknown: true

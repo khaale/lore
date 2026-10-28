@@ -1,0 +1,45 @@
+id: https://example.org/profile
+name: profile
+default_range: string
+prefixes:
+  ex: https://example.org/
+  schema: https://schema.org/
+imports: [linkml:types]
+types:
+  Code:
+    typeof: string
+    pattern: '^C-[0-9]+$'
+  NarrowCode:
+    typeof: Code
+    minimum_value: 1
+enums:
+  State:
+    permissible_values: { draft: Draft, ready: Ready }
+slots:
+  id: { range: Code, identifier: true }
+  kind: { range: string, designates_type: true }
+  state: { range: State, required: true }
+  title: { range: string, recommended: true }
+  tags: { range: string, multivalued: true, minimum_cardinality: 1 }
+  child: { range: Child, inverse: parent }
+  parent: { range: Parent, inverse: child }
+classes:
+  Base:
+    abstract: true
+    slots: [id, kind]
+  Child:
+    is_a: Base
+    slots: [state, title, tags, child]
+    slot_usage:
+      title: { required: true }
+    unique_keys:
+      by_state: { unique_key_slots: [state] }
+    annotations:
+      lore:explore_roles: [card]
+      lore:explore_views: [overview, card]
+  Parent:
+    slots: [id, parent]
+    extra_slots: { allowed: true }
+    annotations:
+      lore:markdown_selectors: ['## Summary']
+      lore:explore_views: overview

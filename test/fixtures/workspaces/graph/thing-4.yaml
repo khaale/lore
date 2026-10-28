@@ -1,0 +1,6 @@
+id: thing-4
+kind: Thing
+title: Cycle leaf
+summary: Fourth summary
+children: [thing-1]
+depends_on: thing-2

@@ -1,0 +1,6 @@
+name: bad-prefix
+imports: [shared.yaml]
+prefixes:
+  ex: https://one.example/
+classes: {}
+slots: {}

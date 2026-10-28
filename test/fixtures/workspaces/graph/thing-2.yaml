@@ -1,0 +1,6 @@
+id: thing-2
+kind: Thing
+title: Branch two
+summary: Second summary
+children: [thing-4]
+depends_on: '[[thing-1|Root title]]'

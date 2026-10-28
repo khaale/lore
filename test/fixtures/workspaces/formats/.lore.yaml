@@ -1,0 +1,29 @@
+id: https://example.org/formats
+name: formats
+default_range: string
+imports: [shared.yaml, linkml:types]
+classes:
+  Thing:
+    class_uri: formats:Thing
+    from_schema: https://example.org/formats
+    slots: [id, kind, title, tags]
+    slot_usage:
+      title:
+        required: true
+  Keyed:
+    slots: [code]
+slots:
+  code:
+    range: string
+    key: true
+  id:
+    range: string
+    identifier: true
+  kind:
+    range: string
+    designates_type: true
+  title:
+    range: string
+  tags:
+    range: string
+    multivalued: true

@@ -1,0 +1,4 @@
+id: https://example.org/identity/
+name: identity-slash
+classes:
+  Thing: {}

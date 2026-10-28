@@ -1,0 +1,59 @@
+id: https://example.org/all
+name: all-constructs
+description: A complete Profile v1 schema used by the construct matrix.
+license: CC-BY-4.0
+default_range: string
+prefixes: { ex: https://example.org/ }
+imports: [linkml:types]
+types:
+  Identifier:
+    typeof: string
+    pattern: '^[A-Z]+-[0-9]+$'
+enums:
+  Status:
+    permissible_values: { open: Open, closed: Closed }
+slots:
+  key: { range: Identifier, identifier: true, description: Stable key. }
+  compound:
+    range: string
+    key: true
+    exact_cardinality: 1
+    any_of: [{ range: string }]
+    all_of: [{ pattern: '^[A-Z]' }]
+    none_of: [{ equals_string: forbidden }]
+    exactly_one_of: [{ equals_string: A }, { equals_string: B }]
+  value:
+    {
+      range: string,
+      minimum_value: 1,
+      maximum_value: 99,
+      minimum_cardinality: 1,
+      maximum_cardinality: 1,
+      any_of: [{ range: string }],
+    }
+  detail: { range: Detail, inlined: true, inverse: owner, slot_uri: ex:detail }
+  owner: { range: Record, inverse: detail, title: Owner reference }
+  inherited: { range: string, is_a: value }
+classes:
+  Marker:
+    mixin: true
+    from_schema: https://example.org/origin
+    title: Marker mixin
+    description: Shared marker fields.
+    attributes: { marker: { range: string, recommended: true } }
+  Detail:
+    slots: [value]
+  Record:
+    class_uri: ex:Record
+    mixins: [Marker]
+    slots: [key, detail, owner, inherited]
+    unique_keys: { by_key: { unique_key_slots: [key] } }
+    classification_rules: [{ slot_conditions: { value: { required: true } } }]
+    annotations:
+      lore:explore_roles: [identity, title]
+      lore:explore_relation: reference
+      lore:explore_label: Details
+      lore:explore_order: 1
+      lore:explore_views: [card, tree]
+  Keyed:
+    slots: [compound]

@@ -1,0 +1,35 @@
+id: https://example.org/diagnostics
+name: diagnostics
+default_range: string
+imports: [linkml:types]
+classes:
+  Thing:
+    class_uri: diagnostics:Thing
+    slots: [id, kind, title, summary, code, details]
+  Detail:
+    slots: [name, due]
+slots:
+  id:
+    range: string
+    identifier: true
+  kind:
+    range: string
+    designates_type: true
+  title:
+    range: string
+    required: true
+  summary:
+    range: string
+    recommended: true
+  code:
+    range: string
+    pattern: '^[A-Z]{3}$'
+  details:
+    range: Detail
+    multivalued: true
+    inlined: true
+  name:
+    range: string
+    required: true
+  due:
+    range: date

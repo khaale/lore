@@ -1,0 +1,5 @@
+id: https://example.org/duplicate-root
+name: duplicate-root
+imports: [local-import-base.yaml]
+classes:
+  Imported: {}

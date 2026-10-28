@@ -1,0 +1,83 @@
+{
+  "name": "@khaale/lore",
+  "type": "module",
+  "packageManager": "pnpm@10.17.0",
+  "engines": {
+    "node": ">=24.0.0 <25",
+    "pnpm": "10.17.0"
+  },
+  "scripts": {
+    "format": "prettier --write README.md .github .changeset PUBLISH.md CHANGELOG.md package.json pnpm-workspace.yaml tsconfig*.json eslint.config.mjs prettier.config.mjs vitest.config.ts docs examples skills scripts packages test apps",
+    "format:check": "prettier --check README.md .github .changeset PUBLISH.md CHANGELOG.md package.json pnpm-workspace.yaml tsconfig*.json eslint.config.mjs prettier.config.mjs vitest.config.ts docs examples skills scripts packages test apps",
+    "lint": "eslint .",
+    "typecheck": "pnpm build && tsc -p tsconfig.consumer.json",
+    "test": "pnpm build && vitest run",
+    "build": "tsc -b && node scripts/build-package.mjs",
+    "test:cli": "pnpm build && vitest run test/e2e/cli",
+    "preflight": "node scripts/preflight.mjs",
+    "check": "pnpm preflight && pnpm format:check && pnpm typecheck && pnpm lint && pnpm test",
+    "sdk:example": "pnpm build && node scripts/ptc-example.mjs",
+    "prepack": "pnpm build",
+    "changeset": "changeset",
+    "release": "node scripts/check-publishing-npm.mjs && changeset publish",
+    "prepublishOnly": "pnpm check",
+    "pack:check": "pnpm build && vitest run test/e2e/cli/npm-pack.test.ts"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.31.1",
+    "@eslint/js": "^9.35.0",
+    "@types/node": "^22.18.0",
+    "@typescript-eslint/eslint-plugin": "^8.42.0",
+    "@typescript-eslint/parser": "^8.42.0",
+    "esbuild": "0.28.2",
+    "eslint": "^9.35.0",
+    "prettier": "^3.6.2",
+    "rollup": "4.63.1",
+    "rollup-plugin-dts": "^6.5.1",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "version": "0.1.0",
+  "description": "Linked project knowledge in ordinary files: CLI, TypeScript SDK and programmatic tool calling.",
+  "bin": {
+    "lore": "./dist/cli.js"
+  },
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "skills",
+    "docs/sdk.md",
+    "examples/decisions/.lore.yaml",
+    "examples/decisions/local-files.md",
+    "examples/decisions/validation.md",
+    "README.md",
+    "LICENSE",
+    "PUBLISH.md",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "knowledge",
+    "linkml",
+    "cli",
+    "agents",
+    "ptc"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/khaale/lore.git"
+  },
+  "homepage": "https://github.com/khaale/lore#readme",
+  "bugs": {
+    "url": "https://github.com/khaale/lore/issues"
+  }
+}

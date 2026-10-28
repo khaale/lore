@@ -1,0 +1,49 @@
+id: https://example.org/validation-branches
+name: validation_branches
+default_range: string
+imports: [linkml:types]
+classes:
+  Base:
+    slots: [id, kind, code]
+    unique_keys:
+      inherited_code:
+        unique_key_slots: [code]
+  Child:
+    is_a: Base
+    slots: [any_value, all_value, none_value, exactly_value, due, quantity, score]
+slots:
+  id:
+    range: string
+    identifier: true
+  kind:
+    range: string
+    designates_type: true
+  code:
+    range: string
+    required: true
+  any_value:
+    range: string
+    any_of:
+      - equals_string: alpha
+      - equals_string: beta
+  all_value:
+    range: string
+    all_of:
+      - pattern: ^a
+      - pattern: z$
+  none_value:
+    range: string
+    none_of:
+      - equals_string: forbidden
+  exactly_value:
+    range: string
+    exactly_one_of:
+      - pattern: ^x
+      - equals_string: x
+  due:
+    range: date
+  quantity:
+    range: integer
+  score:
+    range: integer
+    maximum_value: 10

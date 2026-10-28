@@ -1,0 +1,22 @@
+- id: first
+  kind: Thing
+  title: First
+  code: lower
+  details:
+    - name: valid
+      due: '2026-02-28'
+    - name: invalid
+      due: '2026-02-30'
+- id: second
+  kind: Thing
+  title: Second
+  summary: Present
+  code: XYZ
+  extra: rejected
+---
+id: third
+kind: Thing
+title: Third
+summary: Present
+details:
+  - due: 'not-a-date'

@@ -1,0 +1,12 @@
+.DS_Store
+_tmp/
+node_modules/
+**/dist/
+**/*.tsbuildinfo
+.pnpm-store/
+examples/**/.artifact-index/
+/openspec/
+/.agents/
+
+/dist/
+*.tgz

@@ -1,0 +1,22 @@
+id: https://example.org/markdown-invalid
+name: markdown-invalid
+default_range: string
+imports: [linkml:types]
+classes:
+  Thing:
+    class_uri: markdown-invalid:Thing
+    slots: [id, kind, title, summary]
+slots:
+  id:
+    range: string
+    identifier: true
+  kind:
+    range: string
+    designates_type: true
+  title:
+    range: string
+    required: true
+  summary:
+    range: string
+    annotations:
+      'lore:markdown_selectors': ['## Summary']

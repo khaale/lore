@@ -1,0 +1,9 @@
+name: shared
+classes:
+  Shared:
+    description: Imported class
+    from_schema: https://example.org/shared
+    slots: [shared_note]
+slots:
+  shared_note:
+    range: string

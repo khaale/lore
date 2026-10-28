@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "schema_hash": "fixture",
+  "artifacts": {
+    "thing-1": {
+      "id": "thing-1",
+      "identifier": "thing-1",
+      "kind": "Thing",
+      "type_id": "graph:Thing",
+      "source": "thing-1.yaml",
+      "physical_path": "thing-1.yaml",
+      "data": { "id": "thing-1", "kind": "Thing", "title": "Root title" }
+    }
+  },
+  "edges": [],
+  "diagnostics": null
+}

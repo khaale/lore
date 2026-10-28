@@ -1,0 +1,54 @@
+id: https://example.org/failures
+name: failures
+default_range: string
+imports: [linkml:types]
+classes:
+  Thing:
+    class_uri: failures:Thing
+    slots: [id, kind, title, one, tags, too_many, state, score, detail, missing_ref, wrong_ref]
+  Other:
+    class_uri: failures:Other
+    slots: [id, kind]
+  Detail:
+    slots: [name]
+enums:
+  State:
+    permissible_values:
+      ready: {}
+      done: {}
+slots:
+  id:
+    range: string
+    identifier: true
+  kind:
+    range: string
+    designates_type: true
+  title:
+    range: string
+    required: true
+  one:
+    range: string
+  tags:
+    range: string
+    multivalued: true
+    minimum_cardinality: 2
+  too_many:
+    range: string
+    multivalued: true
+    maximum_cardinality: 2
+  state:
+    range: State
+  score:
+    range: integer
+    minimum_value: 5
+    maximum_value: 10
+  detail:
+    range: Detail
+    inlined: true
+  name:
+    range: string
+    required: true
+  missing_ref:
+    range: Other
+  wrong_ref:
+    range: Other

@@ -1,0 +1,26 @@
+{
+  "name": "@khaale/lore-filesystem",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@khaale/lore-core": "workspace:*",
+    "csv-parse": "^6.1.0",
+    "ignore": "^7.0.8",
+    "marked": "^16.3.0",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@khaale/lore-schema": "workspace:*"
+  },
+  "private": true
+}

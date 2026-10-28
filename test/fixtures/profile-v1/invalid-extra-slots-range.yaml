@@ -1,0 +1,5 @@
+id: https://example.org/invalid-extra
+classes:
+  Open:
+    extra_slots:
+      range_expression: { range: string }

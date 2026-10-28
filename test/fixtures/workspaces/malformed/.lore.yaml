@@ -1,0 +1,7 @@
+name: malformed
+classes:
+  Item:
+    attributes:
+      id:
+        required: [x]
+slots: {}

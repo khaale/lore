@@ -1,0 +1,5 @@
+id: thing-1
+kind: Thing
+title: Root title
+summary: Root summary
+children: [thing-2, thing-3]

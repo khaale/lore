@@ -1,0 +1,4 @@
+id: thing-1
+kind: Thing
+title: First thing
+related: thing-2

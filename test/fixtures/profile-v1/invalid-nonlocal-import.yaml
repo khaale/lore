@@ -1,0 +1,2 @@
+id: https://example.org/invalid-import
+imports: [https://example.org/external.yaml]

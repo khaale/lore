@@ -1,0 +1,6 @@
+id: thing-3
+kind: Thing
+title: Branch three
+summary: Third summary
+children: [thing-4]
+depends_on: '[Root](thing-1.yaml#overview "Root")'

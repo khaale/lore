@@ -1,0 +1,72 @@
+[
+  {
+    "path": "local-import-root.yaml",
+    "valid": true
+  },
+  {
+    "path": "valid-comprehensive.yaml",
+    "valid": true
+  },
+  {
+    "path": "valid-all-constructs.yaml",
+    "valid": true
+  },
+  {
+    "path": "valid-identity-depth.yaml",
+    "valid": true
+  },
+  {
+    "path": "valid-identity-slash.yaml",
+    "valid": true
+  },
+  {
+    "path": "invalid-unsupported.yaml",
+    "valid": false,
+    "category": "unsupported-profile"
+  },
+  {
+    "path": "invalid-operational-families.yaml",
+    "valid": false,
+    "category": "unsupported-profile"
+  },
+  {
+    "path": "invalid-extra-slots-range.yaml",
+    "valid": false,
+    "category": "unsupported-profile"
+  },
+  {
+    "path": "invalid-malformed-required.yaml",
+    "valid": false,
+    "category": "parse"
+  },
+  {
+    "path": "invalid-malformed-attribute.yaml",
+    "valid": false,
+    "category": "parse"
+  },
+  {
+    "path": "invalid-absolute-import.yaml",
+    "valid": false,
+    "category": "composition"
+  },
+  {
+    "path": "invalid-nonlocal-import.yaml",
+    "valid": false,
+    "category": "composition"
+  },
+  {
+    "path": "invalid-cycle-a.yaml",
+    "valid": false,
+    "category": "composition"
+  },
+  {
+    "path": "invalid-duplicate-root.yaml",
+    "valid": false,
+    "category": "composition"
+  },
+  {
+    "path": "invalid-conflicting-prefix-root.yaml",
+    "valid": false,
+    "category": "composition"
+  }
+]

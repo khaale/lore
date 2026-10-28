@@ -1,0 +1,2 @@
+id: https://example.org/invalid-absolute
+imports: [/tmp/other-schema.yaml]

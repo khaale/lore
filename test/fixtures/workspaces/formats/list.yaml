@@ -1,0 +1,6 @@
+- id: yaml-list-1
+  kind: Thing
+  title: YAML list 1
+- id: yaml-list-2
+  kind: Thing
+  title: YAML list 2

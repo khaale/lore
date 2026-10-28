@@ -1,0 +1,9 @@
+id: https://example.org/invalid
+classes:
+  Thing:
+    slots: [name]
+    open_world: true
+slots:
+  name:
+    range: string
+    equals_expression: value

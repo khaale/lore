@@ -1,0 +1,4 @@
+id: https://example.org/conflict-root
+imports: [conflicting-prefix-base.yaml]
+prefixes: { ex: https://example.org/root/ }
+classes: {}

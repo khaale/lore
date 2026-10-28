@@ -1,0 +1,7 @@
+id: https://example.org/local-root
+name: local-root
+imports: [local-import-base.yaml]
+classes:
+  Local:
+    is_a: Imported
+    slots: [imported_id]

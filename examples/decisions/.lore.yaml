@@ -1,0 +1,37 @@
+id: https://example.org/decisions
+name: architecture_decisions
+imports:
+  - linkml:types
+default_range: string
+slots:
+  id:
+    identifier: true
+    annotations:
+      'lore:explore_roles': [identity]
+  kind:
+    designates_type: true
+    required: true
+  title:
+    required: true
+    annotations:
+      'lore:explore_roles': [title]
+  status:
+    range: DecisionStatus
+    required: true
+    annotations:
+      'lore:explore_roles': [card]
+  depends_on:
+    range: Decision
+    multivalued: true
+    annotations:
+      'lore:explore_relation': dependency
+      'lore:explore_label': depends on
+      'lore:explore_views': [card, neighborhood, impact]
+enums:
+  DecisionStatus:
+    permissible_values:
+      proposed:
+      accepted:
+classes:
+  Decision:
+    slots: [id, kind, title, status, depends_on]

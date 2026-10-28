@@ -1,0 +1,11 @@
+id: bad
+kind: Thing
+title: Bad constraints
+one: [a, b]
+tags: [only]
+too_many: [a, b, c]
+state: unknown
+score: 3
+detail: not-an-object
+missing_ref: absent
+wrong_ref: target

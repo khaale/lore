@@ -1,0 +1,6 @@
+id: https://example.org/invalid-attribute-shape
+classes:
+  Thing:
+    attributes:
+      malformed:
+        required: [x]

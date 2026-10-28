@@ -1,0 +1,46 @@
+id: https://example.org/graph
+name: graph
+default_range: string
+imports: [linkml:types]
+classes:
+  Thing:
+    class_uri: graph:Thing
+    slots: [id, kind, title, summary, children, parent, depends_on, depended_by]
+slots:
+  id:
+    range: string
+    identifier: true
+    annotations:
+      'lore:explore_roles': [identity]
+      'lore:explore_order': 1
+  kind:
+    range: string
+    designates_type: true
+  title:
+    range: string
+    required: true
+    annotations:
+      'lore:explore_roles': [title]
+      'lore:explore_order': 2
+  summary:
+    range: string
+    annotations:
+      'lore:explore_roles': [summary]
+      'lore:explore_order': 3
+  children:
+    range: Thing
+    multivalued: true
+    inverse: parent
+    annotations:
+      'lore:explore_relation': hierarchy
+      'lore:explore_label': contains
+  parent:
+    range: Thing
+  depends_on:
+    range: Thing
+    inverse: depended_by
+    annotations:
+      'lore:explore_relation': dependency
+      'lore:explore_label': depends on
+  depended_by:
+    range: Thing

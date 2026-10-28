@@ -1,0 +1,25 @@
+{
+  "name": "@khaale/lore-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "bin": {
+    "lore": "dist/index.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -b && chmod +x dist/index.js",
+    "typecheck": "tsc -b --pretty false",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@khaale/lore-schema": "workspace:*",
+    "@khaale/lore-filesystem": "workspace:*",
+    "@khaale/lore-core": "workspace:*"
+  },
+  "private": true
+}

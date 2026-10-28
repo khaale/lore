@@ -1,0 +1,643 @@
+{
+  "constructs": [
+    {
+      "id": "yaml-object",
+      "fixture": "basic",
+      "workflow": "index",
+      "source": "index",
+      "path": "artifacts.thing-1.kind",
+      "equals": "Thing"
+    },
+    {
+      "id": "yaml-list",
+      "fixture": "basic",
+      "workflow": "index",
+      "source": "index",
+      "path": "artifacts.thing-2.id",
+      "equals": "thing-2"
+    },
+    {
+      "id": "yaml-multidoc",
+      "fixture": "basic",
+      "workflow": "index",
+      "source": "index",
+      "path": "artifacts.note-1.id",
+      "equals": "note-1"
+    },
+    {
+      "id": "markdown-frontmatter",
+      "fixture": "basic",
+      "workflow": "index",
+      "source": "index",
+      "path": "artifacts.note-1.data.kind",
+      "equals": "Thing"
+    },
+    {
+      "id": "markdown-sections-links",
+      "fixture": "basic",
+      "workflow": "index",
+      "source": "index",
+      "path": "edges",
+      "contains": {
+        "relation": "references",
+        "generic": true
+      }
+    },
+    {
+      "id": "csv-quoted-scalars",
+      "fixture": "basic",
+      "workflow": "check",
+      "source": "report",
+      "path": "summary.artifacts",
+      "equals": 4
+    },
+    {
+      "id": "supported-discovery",
+      "fixture": "basic",
+      "workflow": "index",
+      "source": "index",
+      "path": "version",
+      "equals": 2
+    },
+    {
+      "id": "source-identity",
+      "fixture": "basic",
+      "workflow": "index",
+      "source": "index",
+      "path": "artifacts.thing-1.source",
+      "matches": "thing.yaml"
+    },
+    {
+      "id": "designator-classification",
+      "fixture": "basic",
+      "workflow": "index",
+      "source": "index",
+      "path": "artifacts.thing-1.type_id",
+      "equals": "basic:Thing"
+    },
+    {
+      "id": "unique-logical-identity",
+      "fixture": "basic",
+      "workflow": "index",
+      "source": "index",
+      "path": "artifacts.thing-2.id",
+      "equals": "thing-2"
+    },
+    {
+      "id": "inverse-representation",
+      "fixture": "basic",
+      "workflow": "index",
+      "source": "index",
+      "path": "edges",
+      "contains": {
+        "relation": "related_from",
+        "inferred": true
+      }
+    },
+    {
+      "id": "generic-body-distinction",
+      "fixture": "basic",
+      "workflow": "index",
+      "source": "index",
+      "path": "edges",
+      "contains": {
+        "relation": "references",
+        "generic": true
+      }
+    },
+    {
+      "id": "index-determinism",
+      "fixture": "basic",
+      "workflow": "index",
+      "source": "index",
+      "path": "version",
+      "equals": 2
+    },
+    {
+      "id": "check-report",
+      "fixture": "basic",
+      "workflow": "check",
+      "source": "report",
+      "path": "summary.errors",
+      "equals": 0
+    },
+    {
+      "id": "explore-overview",
+      "fixture": "graph",
+      "workflow": "explore:overview",
+      "source": "report",
+      "path": "data.cycles",
+      "equals": true
+    },
+    {
+      "id": "explore-card",
+      "fixture": "graph",
+      "workflow": "explore:card",
+      "source": "report",
+      "path": "data.fields.1.roles",
+      "equals": ["title"]
+    },
+    {
+      "id": "json-object-format",
+      "fixture": "formats",
+      "workflow": "index",
+      "source": "index",
+      "path": "artifacts.json-object.id",
+      "equals": "json-object"
+    },
+    {
+      "id": "json-list-format",
+      "fixture": "formats",
+      "workflow": "index",
+      "source": "index",
+      "path": "artifacts.json-list-2.data.title",
+      "equals": "JSON list 2"
+    },
+    {
+      "id": "yaml-list-format",
+      "fixture": "formats",
+      "workflow": "index",
+      "source": "index",
+      "path": "artifacts.yaml-list-1.data.title",
+      "equals": "YAML list 1"
+    },
+    {
+      "id": "yaml-multidoc-format",
+      "fixture": "formats",
+      "workflow": "index",
+      "source": "index",
+      "path": "artifacts.yaml-doc-2.id",
+      "equals": "yaml-doc-2"
+    },
+    {
+      "id": "warning-diagnostic",
+      "fixture": "formats",
+      "workflow": "check",
+      "source": "report",
+      "path": "summary.warnings",
+      "equals": 1
+    },
+    {
+      "id": "schema-hash",
+      "fixture": "basic",
+      "workflow": "index",
+      "source": "index",
+      "path": "schema_hash",
+      "matches": "^[0-9a-f]{64}$"
+    },
+    {
+      "id": "formats-explore-overview",
+      "fixture": "formats",
+      "workflow": "explore:overview",
+      "source": "report",
+      "path": "data.artifacts",
+      "equals": 9
+    },
+    {
+      "id": "formats-explore-neighborhood",
+      "fixture": "formats",
+      "workflow": "explore:neighborhood",
+      "source": "report",
+      "path": "data.incoming",
+      "equals": []
+    },
+    {
+      "id": "formats-explore-impact",
+      "fixture": "formats",
+      "workflow": "explore:impact",
+      "source": "report",
+      "path": "data.direct",
+      "equals": []
+    },
+    {
+      "id": "ignore-char-class",
+      "fixture": "formats",
+      "workflow": "index",
+      "source": "index",
+      "path": "artifacts.json-object.id",
+      "equals": "json-object"
+    },
+    {
+      "id": "ignore-escaped-negation",
+      "fixture": "formats",
+      "workflow": "index",
+      "source": "index",
+      "path": "artifacts.yaml-list-1.id",
+      "equals": "yaml-list-1"
+    },
+    {
+      "id": "ignore-globstar-zero-depth",
+      "fixture": "formats",
+      "workflow": "index",
+      "source": "index",
+      "path": "artifacts.json-list-2.id",
+      "equals": "json-list-2"
+    },
+    {
+      "id": "local-import-closure",
+      "fixture": "formats",
+      "workflow": "index",
+      "source": "index",
+      "path": "schema_hash",
+      "matches": "^[0-9a-f]{64}$"
+    },
+    {
+      "id": "typed-wikilink-surface",
+      "fixture": "graph",
+      "workflow": "index",
+      "source": "index",
+      "path": "edges.7.surface",
+      "equals": "[[thing-1|Root title]]"
+    },
+    {
+      "id": "typed-markdown-surface",
+      "fixture": "graph",
+      "workflow": "index",
+      "source": "index",
+      "path": "edges.10.surface",
+      "equals": "[Root](thing-1.yaml#overview \"Root\")"
+    },
+    {
+      "id": "card-identity-field",
+      "fixture": "graph",
+      "workflow": "explore:card",
+      "source": "report",
+      "path": "data.fields.0.roles",
+      "equals": ["identity"]
+    },
+    {
+      "id": "markdown-body-description",
+      "fixture": "basic",
+      "workflow": "index",
+      "source": "index",
+      "path": "artifacts.note-1.data.title",
+      "equals": "Note"
+    },
+    {
+      "id": "source-path-stability",
+      "fixture": "basic",
+      "workflow": "index",
+      "source": "index",
+      "path": "artifacts.thing-1.physical_path",
+      "matches": "thing.yaml$"
+    },
+    {
+      "id": "inverse-edge-direction",
+      "fixture": "basic",
+      "workflow": "index",
+      "source": "index",
+      "path": "edges",
+      "contains": {
+        "relation": "related_from",
+        "inferred": true
+      }
+    },
+    {
+      "id": "diagnostic-pattern-span",
+      "fixture": "diagnostics",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.0.span",
+      "equals": {
+        "line": 4,
+        "column": 9
+      }
+    },
+    {
+      "id": "diagnostic-nested-list-span",
+      "fixture": "diagnostics",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.1.span",
+      "equals": {
+        "line": 9,
+        "column": 12
+      }
+    },
+    {
+      "id": "diagnostic-recommended-artifact",
+      "fixture": "diagnostics",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.2.artifact",
+      "equals": "first"
+    },
+    {
+      "id": "diagnostic-multidoc-order",
+      "fixture": "diagnostics",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.4.source",
+      "matches": "list.yaml#doc=2$"
+    },
+    {
+      "id": "diagnostic-required-parent-span",
+      "fixture": "diagnostics",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.5.span",
+      "equals": {
+        "line": 22,
+        "column": 5
+      }
+    },
+    {
+      "id": "markdown-frontmatter-conflict",
+      "fixture": "markdown-invalid",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.0.code",
+      "equals": "MARKDOWN_FRONTMATTER_CONFLICT"
+    },
+    {
+      "id": "markdown-conflict-related-span",
+      "fixture": "markdown-invalid",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.0.related_spans.0",
+      "equals": {
+        "line": 9,
+        "column": 1
+      }
+    },
+    {
+      "id": "markdown-duplicate-section",
+      "fixture": "markdown-invalid",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.1.code",
+      "equals": "DUPLICATE_MARKDOWN_SECTION"
+    },
+    {
+      "id": "markdown-duplicate-related-span",
+      "fixture": "markdown-invalid",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.1.related_spans.0",
+      "equals": {
+        "line": 12,
+        "column": 1
+      }
+    },
+    {
+      "id": "markdown-scalar-shape",
+      "fixture": "markdown-invalid",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.2.code",
+      "equals": "MARKDOWN_SLOT_SHAPE"
+    },
+    {
+      "id": "explore-title-label",
+      "fixture": "graph",
+      "workflow": "explore:card",
+      "source": "report",
+      "path": "root.label",
+      "equals": "Root title"
+    },
+    {
+      "id": "explore-card-roles",
+      "fixture": "graph",
+      "workflow": "explore:card",
+      "source": "report",
+      "path": "data.fields.2.roles",
+      "equals": ["summary"]
+    },
+    {
+      "id": "explore-relation-metadata",
+      "fixture": "graph",
+      "workflow": "explore:card",
+      "source": "report",
+      "path": "data.edges.0",
+      "matches": "contains"
+    },
+    {
+      "id": "explore-meta-logical-edges",
+      "fixture": "graph",
+      "workflow": "explore:overview",
+      "source": "report",
+      "path": "meta.logical_edges",
+      "equals": 16
+    },
+    {
+      "id": "typed-wikilink-surface-exact",
+      "fixture": "graph",
+      "workflow": "index",
+      "source": "index",
+      "path": "edges.7.surface",
+      "equals": "[[thing-1|Root title]]"
+    },
+    {
+      "id": "typed-markdown-surface-exact",
+      "fixture": "graph",
+      "workflow": "index",
+      "source": "index",
+      "path": "edges.10.surface",
+      "equals": "[Root](thing-1.yaml#overview \"Root\")"
+    },
+    {
+      "id": "typed-edge-order",
+      "fixture": "graph",
+      "workflow": "index",
+      "source": "index",
+      "path": "edges.10.from",
+      "equals": "thing-3"
+    },
+    {
+      "id": "markdown-heading-level-selector",
+      "fixture": "markdown-level",
+      "workflow": "index",
+      "source": "index",
+      "path": "artifacts.level.data",
+      "equals": {
+        "id": "level",
+        "kind": "Thing",
+        "title": "Summary"
+      }
+    },
+    {
+      "id": "markdown-fragment-resolution",
+      "fixture": "graph",
+      "workflow": "index",
+      "source": "index",
+      "path": "edges.10.to",
+      "equals": "thing-1"
+    },
+    {
+      "id": "standalone-invalid-duplicate",
+      "fixture": "invalid-duplicate",
+      "workflow": "check",
+      "source": "report",
+      "diagnostic": "DUPLICATE_ID"
+    },
+    {
+      "id": "typed-independent-edge-array",
+      "fixture": "typed-order",
+      "workflow": "index",
+      "source": "index",
+      "path": "edges",
+      "equals": [
+        {
+          "from": "a",
+          "relation": "related",
+          "to": "b",
+          "inferred": true
+        },
+        {
+          "from": "a",
+          "relation": "related_from",
+          "to": "b",
+          "surface": "[[b]]"
+        },
+        {
+          "from": "b",
+          "relation": "related",
+          "to": "a",
+          "inferred": true
+        },
+        {
+          "from": "b",
+          "relation": "related_from",
+          "to": "a",
+          "surface": "[A](a.md)"
+        }
+      ]
+    },
+    {
+      "id": "validation-branch-diagnostic-count",
+      "fixture": "validation-branches",
+      "workflow": "check",
+      "source": "report",
+      "path": "summary.diagnostics",
+      "equals": 8
+    },
+    {
+      "id": "validation-boolean-all-of",
+      "fixture": "validation-branches",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.0",
+      "matches": "^\\{\"severity\":\"error\",\"code\":\"BOOLEAN_CONSTRAINT\",\"message\":\"slot all_value violates all_of\",\"source\":\"[^\"]*validation-branches/01-invalid.yaml\",\"artifact\":\"invalid\",\"slot\":\"all_value\",\"span\":\\{\"line\":5,\"column\":12\\}\\}$"
+    },
+    {
+      "id": "validation-boolean-any-of",
+      "fixture": "validation-branches",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.1",
+      "matches": "^\\{\"severity\":\"error\",\"code\":\"BOOLEAN_CONSTRAINT\",\"message\":\"slot any_value violates any_of\",\"source\":\"[^\"]*validation-branches/01-invalid.yaml\",\"artifact\":\"invalid\",\"slot\":\"any_value\",\"span\":\\{\"line\":4,\"column\":12\\}\\}$"
+    },
+    {
+      "id": "validation-boolean-exactly-one-of",
+      "fixture": "validation-branches",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.2",
+      "matches": "^\\{\"severity\":\"error\",\"code\":\"BOOLEAN_CONSTRAINT\",\"message\":\"slot exactly_value violates exactly_one_of\",\"source\":\"[^\"]*validation-branches/01-invalid.yaml\",\"artifact\":\"invalid\",\"slot\":\"exactly_value\",\"span\":\\{\"line\":7,\"column\":16\\}\\}$"
+    },
+    {
+      "id": "validation-boolean-none-of",
+      "fixture": "validation-branches",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.3",
+      "matches": "^\\{\"severity\":\"error\",\"code\":\"BOOLEAN_CONSTRAINT\",\"message\":\"slot none_value violates none_of\",\"source\":\"[^\"]*validation-branches/01-invalid.yaml\",\"artifact\":\"invalid\",\"slot\":\"none_value\",\"span\":\\{\"line\":6,\"column\":13\\}\\}$"
+    },
+    {
+      "id": "validation-max-value",
+      "fixture": "validation-branches",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.4",
+      "matches": "^\\{\"severity\":\"error\",\"code\":\"MAX_VALUE\",\"message\":\"slot score is above maximum\",\"source\":\"[^\"]*validation-branches/01-invalid.yaml\",\"artifact\":\"invalid\",\"slot\":\"score\",\"span\":\\{\"line\":10,\"column\":8\\}\\}$"
+    },
+    {
+      "id": "validation-range-date",
+      "fixture": "validation-branches",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.5",
+      "matches": "^\\{\"severity\":\"error\",\"code\":\"RANGE\",\"message\":\"slot due expects date\",\"source\":\"[^\"]*validation-branches/01-invalid.yaml\",\"artifact\":\"invalid\",\"slot\":\"due\",\"span\":\\{\"line\":8,\"column\":6\\}\\}$"
+    },
+    {
+      "id": "validation-range-type",
+      "fixture": "validation-branches",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.6",
+      "matches": "^\\{\"severity\":\"error\",\"code\":\"RANGE\",\"message\":\"slot quantity expects integer\",\"source\":\"[^\"]*validation-branches/01-invalid.yaml\",\"artifact\":\"invalid\",\"slot\":\"quantity\",\"span\":\\{\"line\":9,\"column\":11\\}\\}$"
+    },
+    {
+      "id": "validation-inherited-unique-key",
+      "fixture": "validation-branches",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.7",
+      "matches": "^\\{\"severity\":\"error\",\"code\":\"UNIQUE_KEY\",\"message\":\"unique key inherited_code conflicts with unique-a\",\"source\":\"[^\"]*validation-branches/91-unique-b.yaml\",\"artifact\":\"unique-b\",\"slot\":\"code\"\\}$"
+    },
+    {
+      "id": "failure-broken-reference",
+      "fixture": "failures",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.0.code",
+      "equals": "BROKEN_REFERENCE"
+    },
+    {
+      "id": "failure-enum",
+      "fixture": "failures",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.1.code",
+      "equals": "ENUM"
+    },
+    {
+      "id": "failure-inline-object",
+      "fixture": "failures",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.2.code",
+      "equals": "INLINE_OBJECT"
+    },
+    {
+      "id": "failure-max-cardinality",
+      "fixture": "failures",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.3.code",
+      "equals": "MAX_CARDINALITY"
+    },
+    {
+      "id": "failure-min-cardinality",
+      "fixture": "failures",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.4.code",
+      "equals": "MIN_CARDINALITY"
+    },
+    {
+      "id": "failure-min-value",
+      "fixture": "failures",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.5.code",
+      "equals": "MIN_VALUE"
+    },
+    {
+      "id": "failure-reference-type",
+      "fixture": "failures",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.6.code",
+      "equals": "REFERENCE_TYPE"
+    },
+    {
+      "id": "failure-single-valued",
+      "fixture": "failures",
+      "workflow": "check",
+      "source": "report",
+      "path": "diagnostics.7.code",
+      "equals": "SINGLE_VALUED"
+    }
+  ]
+}

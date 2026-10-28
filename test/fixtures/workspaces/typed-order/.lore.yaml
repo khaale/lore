@@ -1,0 +1,21 @@
+id: https://example.org/typed-order
+name: typed-order
+default_range: string
+imports: [linkml:types]
+classes:
+  Thing:
+    class_uri: typed-order:Thing
+    slots: [id, kind, related, related_from]
+slots:
+  id:
+    range: string
+    identifier: true
+  kind:
+    range: string
+    designates_type: true
+  related:
+    range: Thing
+    inverse: related_from
+  related_from:
+    range: Thing
+    inverse: related
