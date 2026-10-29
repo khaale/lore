@@ -1,0 +1,21 @@
+schema: spec-driven
+context: |
+  Lore is a read-only schema-independent runtime for authored knowledge files.
+  The public @khaale/lore package exposes CLI, TypeScript SDK and caller-owned PTC.
+  Sources remain externally owned; only the derived JSON index is published.
+  Eleven capabilities are grouped under model/, sources/, core/, interfaces/,
+  plus distribution. README.md maps ownership and development planning boundaries.
+  model/linkml-profile is the single normative supported LinkML profile:
+  composition, normalization, constraints, metadata and unsupported semantics.
+  interfaces/sdk owns shared read semantics; interfaces/ptc defines execution
+  policy differences. CLI current-source semantics differ from saved-index SDK reads.
+  openspec/ is tracked planning documentation; .agents/ remains local and ignored.
+  Neither is a product build/runtime dependency.
+rules:
+  specs:
+    - Reuse the owning capability; keep model, sources, core and interface boundaries explicit.
+    - Preserve full capability paths. Split source formats only when their distinct contracts justify a separate capability.
+    - Keep each rule in one owner and link from consumers; do not repeat SDK read semantics in PTC.
+    - Keep the complete supported LinkML boundary in model/linkml-profile, linking runtime classification to core/knowledge-graph.
+    - Specify inputs, outputs, limits, failure and empty-result behavior when relevant to understanding or planning changes.
+    - Ground current-state claims in implementation/public types/tests; distinguish accepted metadata from executed behavior.

@@ -5,7 +5,6 @@ node_modules/
 **/*.tsbuildinfo
 .pnpm-store/
 examples/**/.artifact-index/
-/openspec/
 /.agents/
 
 /dist/

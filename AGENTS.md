@@ -4,8 +4,9 @@ Keep README, SDK documentation, public types and examples aligned with implement
 behavior. Reusable product skills live under `skills/`: `lore-modeling` for schemas
 and authored knowledge, and `lore-usage` for CLI, SDK and PTC workflows.
 
-`openspec/` and `.agents/` are local, ignored working materials. Do not require
-them to build, use or contribute to the tracked project.
+`openspec/` contains tracked current-state specifications for understanding the
+product and planning changes. `.agents/` remains local, ignored working material.
+Neither directory is required to build or use the product.
 
 ## Project command environment
 
