@@ -15,6 +15,7 @@ export type HeadingIdentityRule = {
 export type SlotExpr = {
   range?: string | undefined;
   required?: boolean | undefined;
+  valuePresence?: 'PRESENT' | 'ABSENT' | undefined;
   equalsString?: string | undefined;
   equalsStringIn?: string[] | undefined;
   pattern?: string | undefined;
@@ -36,6 +37,11 @@ export type ClassExpr = {
   exactlyOneOf?: ClassExpr[] | undefined;
   extra?: Record<string, unknown> | undefined;
 };
+export type ClassRule = {
+  preconditions?: ClassExpr | undefined;
+  postconditions: ClassExpr;
+  extra?: Record<string, unknown> | undefined;
+};
 export type SlotDef = {
   description?: string | undefined;
   slotUri?: string | undefined;
@@ -45,6 +51,7 @@ export type SlotDef = {
   required?: boolean | undefined;
   recommended?: boolean | undefined;
   multivalued?: boolean | undefined;
+  listElementsUnique?: boolean | undefined;
   identifier?: boolean | undefined;
   key?: boolean | undefined;
   inlined?: boolean | undefined;
@@ -75,6 +82,8 @@ export type ClassDef = {
   attributes?: Record<string, SlotDef> | undefined;
   slotUsage?: Record<string, SlotDef> | undefined;
   classificationRules?: ClassExpr[] | undefined;
+  recordConstraints?: ClassExpr[] | undefined;
+  rules?: ClassRule[] | undefined;
   uniqueKeys?: Record<string, UniqueKey> | undefined;
   extraSlots?: ExtraSlots | undefined;
   annotations?: Annotations | undefined;
@@ -136,6 +145,8 @@ export type RuntimeSlot = {
   required: boolean;
   recommended: boolean;
   multivalued: boolean;
+  listElementsUnique?: boolean;
+  explicitRange?: boolean;
   identifier: boolean;
   key: boolean;
   mode: ValueMode;
@@ -167,6 +178,8 @@ export type RuntimeClass = {
   mixin: boolean;
   slots: Record<string, RuntimeSlot>;
   classificationRules: ClassExpr[];
+  recordConstraints?: ClassExpr[];
+  rules?: ClassRule[];
   uniqueKeys: Record<string, RuntimeUniqueKey>;
   designatorSlot?: string | undefined;
   allowExtra: boolean;
@@ -282,6 +295,7 @@ const knownSlot = new Set([
   'required',
   'recommended',
   'multivalued',
+  'list_elements_unique',
   'identifier',
   'key',
   'inlined',
@@ -327,6 +341,7 @@ function expression(v: unknown): SlotExpr {
   for (const [from, to] of [
     ['range', 'range'],
     ['required', 'required'],
+    ['value_presence', 'valuePresence'],
     ['equals_string', 'equalsString'],
     ['pattern', 'pattern'],
     ['minimum_cardinality', 'minimumCardinality'],
@@ -357,6 +372,7 @@ function expression(v: unknown): SlotExpr {
     new Set([
       'range',
       'required',
+      'value_presence',
       'equals_string',
       'equals_string_in',
       'pattern',
@@ -390,6 +406,7 @@ function slot(v: unknown): SlotDef {
     ['required', 'required'],
     ['recommended', 'recommended'],
     ['multivalued', 'multivalued'],
+    ['list_elements_unique', 'listElementsUnique'],
     ['identifier', 'identifier'],
     ['key', 'key'],
     ['inlined', 'inlined'],
@@ -498,6 +515,21 @@ function decode(raw: unknown, source?: string): AssertedSchema {
       out.slotUsage = Object.fromEntries(Object.entries(usage).map(([k, y]) => [k, slot(y)]));
     if (Array.isArray(c.classification_rules))
       out.classificationRules = c.classification_rules.map(classExpr);
+    const record = Object.fromEntries(
+      ['any_of', 'all_of', 'none_of', 'exactly_one_of']
+        .filter((key) => c[key] !== undefined)
+        .map((key) => [key, c[key]]),
+    );
+    if (Object.keys(record).length) out.recordConstraints = [classExpr(record)];
+    if (Array.isArray(c.rules))
+      out.rules = c.rules.map((rule: unknown) => {
+        const r = obj(rule);
+        return {
+          ...(r.preconditions === undefined ? {} : { preconditions: classExpr(r.preconditions) }),
+          postconditions: classExpr(r.postconditions),
+          extra: extras(r, new Set(['preconditions', 'postconditions'])),
+        };
+      });
     const keys = obj(c.unique_keys);
     if (Object.keys(keys).length)
       out.uniqueKeys = Object.fromEntries(
@@ -531,6 +563,11 @@ function decode(raw: unknown, source?: string): AssertedSchema {
         'attributes',
         'slot_usage',
         'classification_rules',
+        'any_of',
+        'all_of',
+        'none_of',
+        'exactly_one_of',
+        'rules',
         'unique_keys',
         'extra_slots',
         'annotations',
@@ -771,6 +808,7 @@ function shapeDiagnostics(raw: unknown, source: string): CompilerDiagnostic[] {
     required: 'boolean',
     recommended: 'boolean',
     multivalued: 'boolean',
+    list_elements_unique: 'boolean',
     identifier: 'boolean',
     key: 'boolean',
     inlined: 'boolean',
@@ -790,6 +828,7 @@ function shapeDiagnostics(raw: unknown, source: string): CompilerDiagnostic[] {
   const expressionFields: Record<string, string> = {
     range: 'string',
     required: 'boolean',
+    value_presence: 'string',
     equals_string: 'string',
     equals_string_in: 'sequence',
     pattern: 'string',
@@ -985,6 +1024,33 @@ function shapeDiagnostics(raw: unknown, source: string): CompilerDiagnostic[] {
             });
           }
         }
+        for (const key of ['any_of', 'all_of', 'none_of', 'exactly_one_of'])
+          if (Array.isArray(item[key]))
+            for (const [i, value] of item[key].entries())
+              checkClassExpression(`${section}.${name}.${key}[${i}]`, value);
+        if (Array.isArray(item.rules))
+          for (const [i, rule] of item.rules.entries()) {
+            const scope = `${section}.${name}.rules[${i}]`;
+            if (!isMapping(rule)) {
+              result.push(
+                diagnostic('parse', 'INVALID_MAPPING', `${scope} must be a mapping`, source, scope),
+              );
+              continue;
+            }
+            checkFields(scope, rule, { preconditions: 'mapping', postconditions: 'mapping' });
+            if (rule.postconditions === undefined)
+              result.push(
+                diagnostic(
+                  'parse',
+                  'INVALID_FIELD_SHAPE',
+                  `${scope}.postconditions is required`,
+                  source,
+                  `${scope}.postconditions`,
+                ),
+              );
+            for (const key of ['preconditions', 'postconditions'])
+              if (rule[key] !== undefined) checkClassExpression(`${scope}.${key}`, rule[key]);
+          }
         if (Array.isArray(item.classification_rules))
           for (const [index, expressionValue] of item.classification_rules.entries())
             checkClassExpression(
@@ -1002,6 +1068,11 @@ function shapeDiagnostics(raw: unknown, source: string): CompilerDiagnostic[] {
     attributes: 'mapping',
     slot_usage: 'mapping',
     classification_rules: 'sequence',
+    any_of: 'sequence',
+    all_of: 'sequence',
+    none_of: 'sequence',
+    exactly_one_of: 'sequence',
+    rules: 'sequence',
   });
   checkMap('types', {
     typeof: 'string',
@@ -1440,6 +1511,16 @@ function checkProfile(s: AssertedSchema): CompilerDiagnostic[] {
   };
   const checkExpr = (scope: string, x: SlotExpr) => {
     checkExtra(scope, x.extra, new Set());
+    if (x.valuePresence !== undefined && !['PRESENT', 'ABSENT'].includes(x.valuePresence))
+      ds.push(
+        diagnostic(
+          'invalid-schema',
+          'INVALID_PRESENCE',
+          `${scope} value_presence must be PRESENT or ABSENT`,
+          undefined,
+          scope,
+        ),
+      );
     for (const e of [
       ...(x.anyOf ?? []),
       ...(x.allOf ?? []),
@@ -1447,6 +1528,35 @@ function checkProfile(s: AssertedSchema): CompilerDiagnostic[] {
       ...(x.exactlyOneOf ?? []),
     ])
       checkExpr(`${scope}.expression`, e);
+  };
+  const checkRecord = (scope: string, expression: ClassExpr) => {
+    checkExtra(scope, expression.extra, new Set());
+    if (expression.isA !== undefined)
+      ds.push(
+        diagnostic(
+          'unsupported-profile',
+          'UNSUPPORTED_METASLOT',
+          `${scope}.is_a is outside record validation`,
+          undefined,
+          `${scope}.is_a`,
+        ),
+      );
+    for (const [name, condition] of Object.entries(expression.slotConditions ?? {}))
+      checkExpr(`${scope}.slot_conditions.${name}`, condition);
+    for (const group of ['anyOf', 'allOf', 'noneOf', 'exactlyOneOf'] as const)
+      if (expression[group]?.length === 0)
+        ds.push(
+          diagnostic(
+            'invalid-schema',
+            'EMPTY_RECORD_GROUP',
+            `${scope}.${group} must contain an expression`,
+            undefined,
+            `${scope}.${group}`,
+          ),
+        );
+    for (const group of ['anyOf', 'allOf', 'noneOf', 'exactlyOneOf'] as const)
+      for (const [i, child] of (expression[group] ?? []).entries())
+        checkRecord(`${scope}.${group}[${i}]`, child);
   };
   checkExtra('schema', s.extra, allowedSchema);
   checkAnn('schema', s.annotations);
@@ -1467,6 +1577,14 @@ function checkProfile(s: AssertedSchema): CompilerDiagnostic[] {
       checkSlot(`class.${name}.attribute.${sn}`, a);
     for (const [sn, a] of Object.entries(c.slotUsage ?? {}))
       checkSlot(`class.${name}.slot_usage.${sn}`, a);
+    for (const [i, r] of (c.recordConstraints ?? []).entries())
+      checkRecord(`class.${name}.constraints[${i}]`, r);
+    for (const [i, r] of (c.rules ?? []).entries()) {
+      const scope = `class.${name}.rules[${i}]`;
+      checkExtra(scope, r.extra, common);
+      if (r.preconditions) checkRecord(`${scope}.preconditions`, r.preconditions);
+      checkRecord(`${scope}.postconditions`, r.postconditions);
+    }
     for (const [i, r] of (c.classificationRules ?? []).entries())
       checkClassExpr(`class.${name}.classification_rules.${i}`, r);
   }
@@ -1685,10 +1803,14 @@ function normalize(s: AssertedSchema): RuntimeSchemaIR {
       if (!x) return;
       if (!out.description && x.description) out.description = x.description;
       if (!out.slotUri && x.slotUri) out.slotUri = x.slotUri;
-      if (x.range) out.range = mergeRange(s, out.range, x.range);
+      if (x.range) {
+        out.range = mergeRange(s, out.range, x.range);
+        out.explicitRange = true;
+      }
       out.required ||= x.required === true;
       out.recommended ||= x.recommended === true;
       out.multivalued ||= x.multivalued === true;
+      if (x.listElementsUnique) out.listElementsUnique = true;
       out.identifier ||= x.identifier === true;
       out.key ||= x.key === true;
       out.designatesType ||= x.designatesType === true;
@@ -1775,6 +1897,8 @@ function normalize(s: AssertedSchema): RuntimeSchemaIR {
       mixin: raw.mixin === true,
       slots,
       classificationRules: [...(raw.classificationRules ?? [])],
+      recordConstraints: ancs.flatMap((cn) => s.classes[cn]?.recordConstraints ?? []),
+      rules: ancs.flatMap((cn) => s.classes[cn]?.rules ?? []),
       uniqueKeys: {},
       allowExtra: raw.extraSlots?.allowed === true,
       depth: Math.max(
@@ -1823,6 +1947,18 @@ function normalize(s: AssertedSchema): RuntimeSchemaIR {
           ? VALUE_MODE.REFERENCE
           : VALUE_MODE.INLINE_OBJECT;
       }
+  for (const c of Object.values(ir.classes))
+    for (const slot of Object.values(c.slots)) {
+      if (!slot.explicitRange) {
+        const classes = valueClasses(ir, slot);
+        if (classes.length)
+          slot.mode =
+            explicitInlineSlots.has(slot) ||
+            classes.every((c) => !Object.values(c.slots).some((s) => s.identifier))
+              ? VALUE_MODE.INLINE_OBJECT
+              : VALUE_MODE.REFERENCE;
+      }
+    }
   const inverse = new Map<string, string>();
   for (const c of Object.values(ir.classes))
     for (const [name, x] of Object.entries(c.slots))
@@ -1842,6 +1978,33 @@ function normalize(s: AssertedSchema): RuntimeSchemaIR {
   for (const c of Object.values(ir.classes))
     for (const [name, x] of Object.entries(c.slots))
       if (!x.inverse && inverse.has(name)) x.inverse = inverse.get(name);
+  for (const c of Object.values(ir.classes)) {
+    for (const slot of Object.values(c.slots))
+      if (slot.listElementsUnique && !slot.multivalued)
+        throw new Error(`${c.name}.${slot.name} list_elements_unique requires multivalued`);
+    const checkConditions = (e: ClassExpr) => {
+      for (const name of Object.keys(e.slotConditions ?? {}))
+        if (!c.slots[name])
+          throw new Error(`${c.name} record condition names unknown slot ${name}`);
+      for (const group of [e.anyOf, e.allOf, e.noneOf, e.exactlyOneOf])
+        for (const child of group ?? []) checkConditions(child);
+    };
+    for (const e of c.recordConstraints ?? []) checkConditions(e);
+    for (const r of c.rules ?? []) {
+      if (r.preconditions) checkConditions(r.preconditions);
+      checkConditions(r.postconditions);
+    }
+  }
+  for (const c of Object.values(ir.classes))
+    for (const { path, slot } of referencePaths(ir, c.name)) {
+      if (!path.includes('.') || !slot.inverse) continue;
+      const targets = valueClasses(ir, slot).map((c) => c.name);
+      for (const target of targets) {
+        const reverse = ir.classes[target]!.slots[slot.inverse];
+        if (!reverse || !s.classes[reverse.range] || !isSubclass(s, c.name, reverse.range))
+          throw new Error(`incompatible nested inverse ${c.name}.${path} -> ${slot.inverse}`);
+      }
+    }
   return ir;
 }
 
@@ -1950,4 +2113,61 @@ export function schemaHash(schema: AssertedSchema): string {
   return createHash('sha256')
     .update(JSON.stringify(canonical(schema)))
     .digest('hex');
+}
+
+function valueClasses(ir: RuntimeSchemaIR, slot: RuntimeSlot): RuntimeClass[] {
+  const names = new Set<string>();
+  if (ir.classes[slot.range]) names.add(slot.range);
+  const visit = (e: SlotExpr) => {
+    if (e.range && ir.classes[e.range]) names.add(e.range);
+    for (const group of [e.anyOf, e.allOf, e.exactlyOneOf])
+      for (const child of group ?? []) visit(child);
+  };
+  for (const group of [slot.anyOf, slot.allOf, slot.exactlyOneOf]) for (const e of group) visit(e);
+  return [...names].map((n) => ir.classes[n]!);
+}
+/** Declared positive inline alternatives; references stop traversal at their owning slot. */
+export function inlineClasses(ir: RuntimeSchemaIR, slot: RuntimeSlot): RuntimeClass[] {
+  return slot.mode === VALUE_MODE.INLINE_OBJECT ? valueClasses(ir, slot) : [];
+}
+export type ReferencePath = { path: string; slot: RuntimeSlot };
+export function referencePaths(ir: RuntimeSchemaIR, className: string): ReferencePath[] {
+  const found = new Map<string, { parts: string[]; slot: RuntimeSlot }>();
+  const paths = new Map<string, string>();
+  const walk = (name: string, parts: string[], seen: Set<string>) => {
+    if (seen.has(name)) return;
+    const next = new Set(seen).add(name);
+    for (const slot of Object.values(ir.classes[name]?.slots ?? {})) {
+      const keys = [...parts, slot.name],
+        path = keys.join('.'),
+        origin = JSON.stringify(keys);
+      if (paths.has(path) && paths.get(path) !== origin)
+        throw new Error(`ambiguous field path ${className}.${path}`);
+      paths.set(path, origin);
+      if (slot.mode === VALUE_MODE.REFERENCE) {
+        const previous = found.get(path);
+        if (previous && JSON.stringify(previous.slot) !== JSON.stringify(slot))
+          throw new Error(`incompatible reference alternatives at ${className}.${path}`);
+        found.set(path, { parts: keys, slot });
+      } else for (const target of inlineClasses(ir, slot)) walk(target.name, keys, next);
+    }
+  };
+  walk(className, [], new Set());
+  return [...found].map(([path, value]) => ({ path, slot: value.slot }));
+}
+export function referenceSlot(
+  ir: RuntimeSchemaIR,
+  className: string,
+  path: string,
+): RuntimeSlot | undefined {
+  const direct = ir.classes[className]?.slots[path];
+  if (direct) return direct.mode === VALUE_MODE.REFERENCE ? direct : undefined;
+  const [head, ...tail] = path.split('.');
+  const slot = ir.classes[className]?.slots[head!];
+  if (!slot || !tail.length) return undefined;
+  for (const cls of inlineClasses(ir, slot)) {
+    const found = referenceSlot(ir, cls.name, tail.join('.'));
+    if (found) return found;
+  }
+  return undefined;
 }

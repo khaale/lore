@@ -74,7 +74,7 @@ data when they could otherwise be interpreted as numbers.
 
 Slots support `any_of`, `all_of`, `none_of` and `exactly_one_of`. Their expression
 objects can contain `range`, `required`, `pattern`, `equals_string`,
-`equals_string_in`, cardinality constraints and nested boolean expressions.
+`equals_string_in`, `value_presence`, cardinality constraints and nested boolean expressions.
 Supported range alternatives include scalar, reference and inline-object cases;
 they do not implement arbitrary LinkML expression evaluation.
 
@@ -90,6 +90,50 @@ status:
 
 `equals_string` and `equals_string_in` belong inside expression objects. A
 standalone top-level slot metaslot with one of those names is not supported.
+
+## Collection and record constraints
+
+`list_elements_unique: true` on a multivalued slot rejects duplicates, including
+inherited constraints. Scalar values compare by native value; inline objects
+compare structurally, ignoring mapping key order. Identified references compare by
+resolved target ID, so two link aliases can be duplicates. Scalar literals and
+explicit references in a union remain distinct. Lore does not deduplicate input,
+wrap scalars into arrays or relax a true inherited flag.
+
+Classes support `any_of`, `all_of`, `none_of` and `exactly_one_of` over record
+expressions containing `slot_conditions` and nested record groups. For example:
+
+```yaml
+Selector:
+  exactly_one_of:
+    - slot_conditions:
+        workload: { required: true }
+    - slot_conditions:
+        application: { required: true }
+  attributes:
+    workload: { range: string }
+    application: { range: string }
+```
+
+Class `rules` support optional `preconditions` and required `postconditions` in
+that same record-expression vocabulary. A missing precondition applies the rule
+unconditionally; an unmatched condition imposes no postcondition. Constraints and
+rules apply to descendants and inline instances. They validate values without
+inferring data or changing classification. Other record predicates such as `is_a`
+in this validation grammar are unsupported.
+
+Slot-expression `value_presence: PRESENT` or `ABSENT` uses the existing required
+emptiness policy: missing/null, blank strings and empty lists are absent; false
+and zero are present. `required: false` allows a value and does not prohibit it.
+Record-level failures use `RECORD_CONSTRAINT` or `CLASS_RULE`; duplicate list
+values use `LIST_ELEMENTS_UNIQUE`, with available nested source locations.
+
+Reference unions are checked against the actual target class and inheritance.
+Nested references are validated and exposed as owning-entity relations such as
+`refinements.scope`; inline objects do not acquire independent IDs. SDK properties
+preserve inline shape and replace resolved nested links with target IDs. Ambiguous
+dotted selectors and incompatible nested inverse declarations are diagnosed.
+Existing derived indexes need rebuilding to establish the stronger validation.
 
 ## Record classification
 
@@ -141,7 +185,7 @@ The profile rejects unsupported semantic metaslots with diagnostics such as
 - Dynamic enum mechanisms such as `dynamic_enum` and `reachable_from`.
 - Executable or expression-based derivation such as `equals_expression` and
   `member_constraints`.
-- General class `rules`, `open_world` and `bidirectional` behavior.
+- Rule `elseconditions`, executable expressions, `open_world` and `bidirectional` behavior.
 - Transitive/symmetric inference metaslots such as `transitive` or `symmetric`.
 - `extra_slots.range_expression` and `inlined_as_dict`.
 - Unknown annotations in the reserved `lore:` namespace.

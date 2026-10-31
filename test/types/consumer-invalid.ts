@@ -25,3 +25,18 @@ async function invalidConsumer(root: string): Promise<void> {
 }
 
 void invalidConsumer('/tmp/unused-sdk-typecheck-fixture');
+
+async function invalidSqliteConsumer(indexPath: string) {
+  const { openSqliteWorkspace } = await import('@khaale/lore');
+  // @ts-expect-error SQLite consumers must explicitly select freshness.
+  await openSqliteWorkspace({ indexPath });
+  const workspace = await openSqliteWorkspace({ indexPath, freshness: { mode: 'indexed' } });
+  // @ts-expect-error ordinary SQLite workspace has no JSON PTC call.
+  await workspace.call(() => 1); // eslint-disable-line @typescript-eslint/no-unsafe-call
+  const page = await workspace.query({ limit: 1 });
+  // @ts-expect-error indexed snapshot identity is distinct from filesystem snapshot.
+  const oldId: string = page.snapshot.id;
+  await workspace.close();
+  return oldId;
+}
+void invalidSqliteConsumer;

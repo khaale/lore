@@ -38,6 +38,7 @@ for (const output of Object.values(bundled.metafile.outputs)) {
 
 const declarations = await rollup({
   input: join(root, 'packages/sdk/dist/index.d.ts'),
+  external: isBuiltin,
   plugins: [
     dts({
       tsconfig: join(root, 'packages/sdk/tsconfig.json'),

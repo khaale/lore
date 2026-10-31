@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+import {
+  initializeSqliteIndex,
+  refreshSqliteIndex,
+  SqliteIndexError,
+} from '@khaale/lore-sdk/sqlite-index';
 import { compileSchema } from '@khaale/lore-schema';
 import {
   discover,
@@ -27,6 +32,9 @@ import { access } from 'node:fs/promises';
 
 type Args = {
   command: string;
+  format: 'json' | 'sqlite';
+  maxAge: number;
+  busyTimeout: number;
   root: string;
   schema: string;
   ignore: string;
@@ -50,6 +58,9 @@ function parse(argv: string[]): Args {
   const command = argv[0] ?? 'help';
   const a: Args = {
     command,
+    format: 'json',
+    maxAge: 0,
+    busyTimeout: 5000,
     root: '.',
     schema: '',
     ignore: '',
@@ -74,6 +85,7 @@ function parse(argv: string[]): Args {
       strict: { kind: 'bool', help: 'reject undeclared slots', default: 'true' },
     },
     index: {
+      format: { kind: 'string', help: 'index format: json or sqlite', default: 'json' },
       ignore: { kind: 'string', help: 'ignore file' },
       json: { kind: 'bool', help: 'JSON diagnostics' },
       out: { kind: 'string', help: 'index output' },
@@ -144,7 +156,14 @@ function parse(argv: string[]): Args {
       root: { kind: 'string', help: 'workspace root' },
       schema: { kind: 'string', help: 'LinkML schema' },
     },
+    refresh: {
+      index: { kind: 'string', help: 'initialized SQLite index path (required)' },
+      'max-age': { kind: 'duration', help: 'maximum accepted source-check age', default: '0' },
+      'busy-timeout': { kind: 'duration', help: 'refresh ownership wait', default: '5s' },
+      json: { kind: 'bool', help: 'one structured refresh result' },
+    },
     watch: {
+      format: { kind: 'string', help: 'index format: json or sqlite', default: 'json' },
       debounce: { kind: 'duration', help: 'debounce interval', default: '300ms' },
       ignore: { kind: 'string', help: 'ignore file' },
       out: { kind: 'string', help: 'index output' },
@@ -215,6 +234,11 @@ function parse(argv: string[]): Args {
     : command === 'refs' || command === 'list'
       ? '.'
       : (positional[0] ?? '.');
+  const format = vals.get('format') ?? 'json';
+  if (format !== 'json' && format !== 'sqlite') flagError('format must be json or sqlite');
+  a.format = format as 'json' | 'sqlite';
+  if (command === 'refresh' && (!vals.get('index') || positional.length))
+    throw new Error('refresh requires --index PATH and no positional root');
   a.schema = vals.get('schema') ?? '';
   a.ignore = vals.get('ignore') ?? join(a.root, '.artifactignore');
   a.index =
@@ -222,7 +246,7 @@ function parse(argv: string[]): Args {
     vals.get('out') ??
     (command === 'list' || command === 'refs'
       ? join('.artifact-index', 'index.json')
-      : join(a.root, '.artifact-index', 'index.json'));
+      : join(a.root, '.artifact-index', a.format === 'sqlite' ? 'index.sqlite' : 'index.json'));
   const out = vals.get('out'),
     kind = vals.get('kind'),
     id = semanticCommand ? positional[0] : command === 'refs' ? positional[0] : positional[1],
@@ -271,6 +295,8 @@ function parse(argv: string[]): Args {
                 : 0.000001;
     return Number(match![1]) * factor;
   };
+  a.maxAge = duration('max-age', vals.get('max-age'), 0);
+  a.busyTimeout = duration('busy-timeout', vals.get('busy-timeout'), 5000);
   a.poll = duration('poll', vals.get('poll'), 150);
   a.debounce = duration('debounce', vals.get('debounce'), 300);
   if (!Number.isInteger(a.depth) || a.depth < 0 || a.depth > 32)
@@ -291,6 +317,9 @@ Usage:
   lore check [root] [flags]
   lore index [root] [flags]
   lore watch [root] [flags]
+  lore index --format sqlite [--out path] [root]
+  lore watch --format sqlite [root]
+  lore refresh --index path [--max-age 1s] [--busy-timeout 5s] [--json]
   lore list [--index path] [--kind Kind]
   lore refs <id> [--index path]
   lore explore [flags] [root] [id]
@@ -472,12 +501,104 @@ async function runSemanticRead(a: Args): Promise<void> {
   );
 }
 
+async function runSqlite(a: Args): Promise<void> {
+  const options = {
+    root: a.root,
+    indexPath: a.index,
+    ignorePath: a.ignore,
+    strict: a.strict,
+    ...(a.schema ? { schemaPath: a.schema } : {}),
+  };
+  const print = (result: Awaited<ReturnType<typeof refreshSqliteIndex>>) => {
+    if (a.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(`${result.outcome}: generation ${result.generationId}`);
+  };
+  if (a.command === 'refresh') {
+    print(
+      await refreshSqliteIndex({
+        indexPath: a.index,
+        maxAgeMs: a.maxAge,
+        busyTimeoutMs: a.busyTimeout,
+      }),
+    );
+    return;
+  }
+  if (a.command === 'index') {
+    print(await initializeSqliteIndex(options));
+    return;
+  }
+  const schemaPath = await resolveSchemaPath(a.root, a.schema || undefined);
+  const watchOptions = {
+    root: a.root,
+    schemaPath,
+    ignorePath: a.ignore,
+    outputPath: a.index,
+    dependencies: await discoverSchemaDependencies(schemaPath),
+  };
+  let initialized = false;
+  const rebuild = async () => {
+    try {
+      const result = initialized
+        ? await refreshSqliteIndex({ indexPath: a.index })
+        : await initializeSqliteIndex(options);
+      initialized = true;
+      print(result);
+    } catch (error) {
+      console.error(`reindex: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      // Keep watching newly referenced imports even when compilation failed.
+      try {
+        watchOptions.schemaPath = await resolveSchemaPath(a.root, a.schema || undefined);
+      } catch {
+        /* Retain the previous selection until ambiguity or removal is repaired. */
+      }
+      const compiled = await compileSchema(watchOptions.schemaPath);
+      watchOptions.dependencies = [
+        ...new Set([
+          ...(compiled.ok
+            ? compiled.value.dependencies
+            : await discoverSchemaDependencies(watchOptions.schemaPath)),
+          ...(a.schema ? [] : MODEL_FILENAMES.map((name) => resolve(a.root, name))),
+        ]),
+      ];
+    }
+  };
+  await rebuild();
+  await new PollWatcher(a.poll, a.debounce).run(watchOptions, rebuild);
+}
+
 async function main() {
   const rawArgs = process.argv.slice(2);
   try {
     const a = parse(rawArgs);
     if (a.command === 'help' || a.command === '--help' || a.command === '-h') {
       usage();
+      return;
+    }
+    if (
+      a.command === 'refresh' ||
+      (a.format === 'sqlite' && (a.command === 'index' || a.command === 'watch'))
+    ) {
+      try {
+        await runSqlite(a);
+      } catch (error) {
+        if (a.json) {
+          console.log(
+            JSON.stringify(
+              {
+                error: {
+                  code: error instanceof SqliteIndexError ? error.code : 'REFRESH_FAILED',
+                  message: error instanceof Error ? error.message : String(error),
+                  ...(error instanceof SqliteIndexError ? { details: error.details } : {}),
+                },
+              },
+              null,
+              2,
+            ),
+          );
+          process.exitCode = 1;
+        } else throw error;
+      }
       return;
     }
     if (

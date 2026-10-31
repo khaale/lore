@@ -60,3 +60,28 @@ Inspect validation diagnostics instead of treating that older index as current.
 Configured exploration supports overview, card, tree, neighborhood and impact
 views. Their fields and relation roles come from schema annotations; inspect the
 model before assuming a dependency or hierarchy presentation.
+
+## SQLite publication and conditional refresh
+
+Flags for `index` and `watch` precede the positional root:
+
+```sh
+lore index --format sqlite knowledge
+lore watch --format sqlite knowledge
+lore refresh --index knowledge/.artifact-index/index.sqlite --max-age 1s --busy-timeout 5s --json
+```
+
+JSON remains the default. SQLite's default path is `.artifact-index/index.sqlite`
+under the root; `--out PATH` overrides it. Initialization saves source/model/ignore
+configuration. Refresh uses that saved configuration; it takes no positional root.
+`--max-age` defaults to zero and `--busy-timeout` to five seconds. Outcomes are
+`unchanged`, `updated` or `reused`; `--json` emits one result document. Failure emits
+an `error` object with code, message and details and exits nonzero. Recent failed
+checks are propagated during max-age reuse. Failed validation preserves the old
+projection, and a later refresh can repair it. Eligible-path discovery and size/mtime
+checks still cost work on unchanged input; there is no fixed latency guarantee.
+
+SQLite stores narrative with model/data/graph in one generation. Use the ordinary
+SQLite SDK to read it; existing `list`, `refs` and JSON-index exploration still use
+JSON. Watch is optional, and independent consumers coordinate refresh through
+SQLite ownership. Authored files remain externally owned.

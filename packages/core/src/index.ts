@@ -1,3 +1,4 @@
+import { inlineClasses } from '@khaale/lore-schema';
 import { relative, resolve, dirname, basename, extname, isAbsolute } from 'node:path';
 import type {
   RuntimeSchemaIR,
@@ -5,6 +6,7 @@ import type {
   RuntimeClass,
   RuntimeSlot,
   SlotExpr,
+  ClassExpr,
   CompiledSchema,
 } from '@khaale/lore-schema';
 /** Source location in an input surface. Kept in core so semantic consumers do not
@@ -127,6 +129,7 @@ export type Edge = {
   inferred?: boolean;
   generic?: boolean;
   surface?: string;
+  value_path?: Array<string | number>;
   provenance?: SourceDescriptor;
 };
 export type Diagnostic = {
@@ -172,7 +175,6 @@ export type BuildResult = { index: IndexV2; schema: RuntimeSchemaIR };
 export * from './state.js';
 export * from './semantic-read.js';
 
-const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : [v]);
 const span = (c: Candidate, key: string): SourceSpan | undefined => spanLookup(c.spans, key);
 const spanLookup = (spans: Record<string, SourceSpan>, path: string): SourceSpan | undefined => {
   let candidate = path;
@@ -273,7 +275,9 @@ function exprOk(
       : scalarOk(value, range, ir),
 ): boolean {
   if (e.range && !rangeCheck(v, e.range)) return false;
-  if (e.required && v === undefined) return false;
+  if (e.required && isEmpty(v)) return false;
+  if (e.valuePresence === 'PRESENT' && isEmpty(v)) return false;
+  if (e.valuePresence === 'ABSENT' && !isEmpty(v)) return false;
   if (e.equalsString !== undefined && v !== e.equalsString) return false;
   if (e.equalsStringIn && !e.equalsStringIn.includes(String(v))) return false;
   if (e.pattern && (typeof v !== 'string' || !new RegExp(e.pattern).test(v))) return false;
@@ -356,8 +360,26 @@ function validate(
   strict: boolean,
   ir: RuntimeSchemaIR,
   schema: AssertedSchema,
+  references?: {
+    owner: Artifact;
+    artifacts: Record<string, Artifact>;
+    emit: (
+      slot: RuntimeSlot,
+      raw: string,
+      target: string,
+      path: string,
+      parts: Array<string | number>,
+    ) => void;
+  },
 ): Diagnostic[] {
   const result: Diagnostic[] = [];
+  const resolvedReferences = new Map<string, string | undefined>();
+  const resolveReference = (raw: string): string | undefined => {
+    if (!references) return undefined;
+    if (!resolvedReferences.has(raw))
+      resolvedReferences.set(raw, resolveTarget(raw, references.owner, references.artifacts));
+    return resolvedReferences.get(raw);
+  };
   const add = (
     severity: 'error' | 'warning',
     code: string,
@@ -365,12 +387,15 @@ function validate(
     slotPath: string,
     spanPath = slotPath,
   ): void => {
-    const location = spanLookup(c.spans, spanPath);
+    const descriptor =
+      references?.owner.provenance?.properties?.[slotPath] ??
+      references?.owner.provenance?.properties?.[slotPath.split(/\.|\[/)[0]!];
+    const location = spanLookup(c.spans, spanPath) ?? descriptor?.span;
     result.push({
       severity,
       code,
       message,
-      source: c.source,
+      source: descriptor?.source ?? c.source,
       artifact: id,
       slot: slotPath,
       ...(location === undefined ? {} : { span: location }),
@@ -382,6 +407,7 @@ function validate(
       return left < right ? -1 : left > right ? 1 : 0;
     return undefined;
   };
+  let probing = 0;
   const expressionPasses = (value: unknown, expression: SlotExpr): boolean =>
     exprOk(value, expression, ir, (candidate, range) => {
       const target = ir.classes[range];
@@ -389,16 +415,80 @@ function validate(
       if (
         typeof candidate === 'string' &&
         Object.values(target.slots).some((slot) => slot.identifier)
-      )
-        return candidate.length > 0;
+      ) {
+        if (!references) return candidate.length > 0;
+        const id = resolveReference(candidate);
+        return !!id && runtimeSubclass(ir, references.artifacts[id]!.kind, range);
+      }
       if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return false;
       const start = result.length;
+      probing++;
       visit(candidate as Record<string, unknown>, target);
+      probing--;
       const valid = !result.slice(start).some((diagnostic) => diagnostic.severity === 'error');
       result.splice(start);
       return valid;
     });
-  const visit = (data: Record<string, unknown>, runtimeClass: RuntimeClass, prefix = ''): void => {
+  const referenceExpressionPasses = (value: unknown, expression: SlotExpr): boolean =>
+    exprOk(value, expression, ir, (item, range) => {
+      if (!references || typeof item !== 'string' || !ir.classes[range]) return false;
+      const target = resolveReference(item);
+      return !!target && runtimeSubclass(ir, references.artifacts[target]!.kind, range);
+    });
+  const hasScalarAlternative = (e: SlotExpr): boolean =>
+    !!(e.range && !ir.classes[e.range]) ||
+    [e.anyOf, e.allOf, e.exactlyOneOf].some((group) => group?.some(hasScalarAlternative));
+  const literalReference = (slot: RuntimeSlot, value: unknown): boolean =>
+    typeof value === 'string' &&
+    !value.trim().startsWith('[[') &&
+    !/^\[[^\]]*\]\(/.test(value.trim()) &&
+    slot.anyOf.some(
+      (e) =>
+        hasScalarAlternative(e) &&
+        exprOk(value, e, ir, (value, range) => !ir.classes[range] && scalarOk(value, range, ir)),
+    );
+  const chooseInline = (slot: RuntimeSlot, value: unknown): RuntimeClass | undefined => {
+    const candidates = inlineClasses(ir, slot);
+    return candidates.find((c) => expressionPasses(value, { range: c.name })) ?? candidates[0];
+  };
+  const normalized = (value: unknown, slot?: RuntimeSlot): unknown => {
+    if (Array.isArray(value)) return ['list', value.map((item) => normalized(item, slot))];
+    if (slot?.mode === 'reference' && typeof value === 'string')
+      return literalReference(slot, value)
+        ? ['literal', value]
+        : ['reference', references ? (resolveReference(value) ?? value) : value];
+    if (value && typeof value === 'object') {
+      const cls = slot ? chooseInline(slot, value) : undefined;
+      return [
+        'object',
+        Object.entries(value)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, item]) => [key, normalized(item, cls?.slots[key])]),
+      ];
+    }
+    return ['scalar', value];
+  };
+  const recordPasses = (data: Record<string, unknown>, expression: ClassExpr): boolean => {
+    if (
+      !Object.entries(expression.slotConditions ?? {}).every(([name, e]) =>
+        expressionPasses(data[name], e),
+      )
+    )
+      return false;
+    return (
+      (!expression.anyOf?.length || expression.anyOf.some((e) => recordPasses(data, e))) &&
+      (!expression.allOf?.length || expression.allOf.every((e) => recordPasses(data, e))) &&
+      (!expression.noneOf?.length || !expression.noneOf.some((e) => recordPasses(data, e))) &&
+      (!expression.exactlyOneOf?.length ||
+        expression.exactlyOneOf.filter((e) => recordPasses(data, e)).length === 1)
+    );
+  };
+  const visit = (
+    data: Record<string, unknown>,
+    runtimeClass: RuntimeClass,
+    prefix = '',
+    parts: Array<string | number> = [],
+  ): void => {
     if (strict && !runtimeClass.allowExtra)
       for (const name of Object.keys(data))
         if (!runtimeClass.slots[name]) {
@@ -464,6 +554,54 @@ function validate(
         );
       values.forEach((item, index) => {
         const valuePath = slotDefinition.multivalued ? `${full}[${index}]` : full;
+        const valueParts = [...parts, name, ...(slotDefinition.multivalued ? [index] : [])];
+        if (slotDefinition.mode === 'reference' && references) {
+          if (literalReference(slotDefinition, item)) return;
+          if (typeof item !== 'string') {
+            add(
+              'error',
+              'REFERENCE_SYNTAX',
+              `reference slot ${full} must contain string identifiers/links`,
+              full,
+              valuePath,
+            );
+            return;
+          }
+          const target = resolveReference(item);
+          if (!target) {
+            add(
+              'error',
+              'BROKEN_REFERENCE',
+              `cannot resolve reference ${JSON.stringify(item)}`,
+              prefix ? valuePath : full,
+              valuePath,
+            );
+            return;
+          }
+          const compatible =
+            (!ir.classes[slotDefinition.range] ||
+              runtimeSubclass(ir, references.artifacts[target]!.kind, slotDefinition.range)) &&
+            (!slotDefinition.anyOf.length ||
+              slotDefinition.anyOf.some((e) => referenceExpressionPasses(item, e))) &&
+            slotDefinition.allOf.every((e) => referenceExpressionPasses(item, e)) &&
+            !slotDefinition.noneOf.some((e) => referenceExpressionPasses(item, e)) &&
+            (!slotDefinition.exactlyOneOf.length ||
+              slotDefinition.exactlyOneOf.filter((e) => referenceExpressionPasses(item, e))
+                .length === 1);
+          if (!compatible) {
+            add(
+              'error',
+              'REFERENCE_TYPE',
+              `${full} target ${target} violates its effective reference constraints`,
+              prefix ? valuePath : full,
+              valuePath,
+            );
+            return;
+          }
+          if (!probing) references.emit(slotDefinition, item, target, valuePath, valueParts);
+          return;
+        }
+
         // A range-free union may accept an inline record; the default string range is not an explicit restriction.
         if (
           !hasDeclaredRange(schema, runtimeClass.name, name) &&
@@ -472,14 +610,9 @@ function validate(
           typeof item === 'object' &&
           !Array.isArray(item)
         ) {
-          const match = slotDefinition.anyOf.find(
-            (expression) =>
-              expression.range &&
-              ir.classes[expression.range] &&
-              expressionPasses(item, expression),
-          );
-          if (match?.range) {
-            visit(item as Record<string, unknown>, ir.classes[match.range]!, valuePath);
+          const match = chooseInline(slotDefinition, item);
+          if (match) {
+            visit(item as Record<string, unknown>, match, valuePath, valueParts);
             return;
           }
         }
@@ -503,7 +636,7 @@ function validate(
                 full,
                 valuePath,
               );
-            else visit(item as Record<string, unknown>, target, valuePath);
+            else visit(item as Record<string, unknown>, target, valuePath, valueParts);
           } else
             add(
               'error',
@@ -554,6 +687,21 @@ function validate(
         if (maximum !== undefined && (compare(item, maximum) ?? 0) > 0)
           add('error', 'MAX_VALUE', `slot ${full} is above maximum`, full, valuePath);
       });
+      if (slotDefinition.listElementsUnique) {
+        const seen = new Set<string>();
+        values.forEach((item, index) => {
+          const key = JSON.stringify(normalized(item, slotDefinition));
+          if (seen.has(key))
+            add(
+              'error',
+              'LIST_ELEMENTS_UNIQUE',
+              `slot ${full} contains a duplicate element`,
+              full,
+              `${full}[${index}]`,
+            );
+          seen.add(key);
+        });
+      }
       const groups: Array<[string, SlotExpr[], (values: boolean[]) => boolean]> = [
         ['any_of', slotDefinition.anyOf, (items) => items.some(Boolean)],
         ['all_of', slotDefinition.allOf, (items) => items.every(Boolean)],
@@ -564,11 +712,12 @@ function validate(
           (items) => items.filter(Boolean).length === 1,
         ],
       ];
+      const containsRange = (e: SlotExpr): boolean =>
+        !!e.range ||
+        [e.anyOf, e.allOf, e.noneOf, e.exactlyOneOf].some((group) => group?.some(containsRange));
       for (const [constraint, expressions, passes] of groups) {
         const items =
-          slotDefinition.multivalued && expressions.some((expression) => expression.range)
-            ? values
-            : [value];
+          slotDefinition.multivalued && expressions.some(containsRange) ? values : [value];
         if (
           expressions.length &&
           items.some(
@@ -578,6 +727,25 @@ function validate(
           add('error', 'BOOLEAN_CONSTRAINT', `slot ${full} violates ${constraint}`, full);
       }
     }
+    for (const constraint of runtimeClass.recordConstraints ?? [])
+      if (!recordPasses(data, constraint))
+        add(
+          'error',
+          'RECORD_CONSTRAINT',
+          `record ${prefix || runtimeClass.name} violates a class constraint`,
+          prefix,
+        );
+    for (const rule of runtimeClass.rules ?? [])
+      if (
+        (!rule.preconditions || recordPasses(data, rule.preconditions)) &&
+        !recordPasses(data, rule.postconditions)
+      )
+        add(
+          'error',
+          'CLASS_RULE',
+          `record ${prefix || runtimeClass.name} violates a class rule`,
+          prefix,
+        );
   };
   visit(c.data, cls);
   return result;
@@ -1897,14 +2065,6 @@ export function buildGraph(candidates: Candidate[], options: BuildOptions): Buil
     edges: [],
     diagnostics: [],
   };
-  const pending: Array<{
-    a: Artifact;
-    slot: RuntimeSlot;
-    raw: string;
-    source: string;
-    span?: SourceSpan;
-    provenance?: SourceDescriptor;
-  }> = [];
   const expanded = expandEnrichedCandidates(
     candidates.map((candidate) => headingIdentityCandidate(candidate, ir)),
     ir,
@@ -2103,80 +2263,40 @@ export function buildGraph(candidates: Candidate[], options: BuildOptions): Buil
         options.strict !== false,
         ir,
         compiled.schema,
+        {
+          owner: artifact,
+          artifacts: index.artifacts,
+          emit(slot, raw, target, valuePath, parts) {
+            const relation = parts.filter((p): p is string => typeof p === 'string').join('.');
+            const nested = parts.filter((p) => typeof p === 'string').length > 1;
+            const descriptor =
+              artifact.provenance?.properties?.[relation] ??
+              artifact.provenance?.properties?.[parts[0] as string];
+            const sourceSpan = spanLookup(entry.candidate.spans, valuePath) ?? descriptor?.span;
+            const provenance = descriptor
+              ? { ...descriptor, ...(sourceSpan ? { span: sourceSpan } : {}) }
+              : nested
+                ? {
+                    source: entry.candidate.source,
+                    physicalPath: entry.candidate.physicalPath,
+                    representation: 'frontmatter' as const,
+                    ...(sourceSpan ? { span: sourceSpan } : {}),
+                  }
+                : undefined;
+            index.edges!.push({
+              from: id,
+              relation,
+              to: target,
+              surface: raw,
+              ...(nested ? { value_path: parts } : {}),
+              ...((artifact.provenance?.enriched || nested) && provenance ? { provenance } : {}),
+            });
+            if (slot.inverse)
+              index.edges!.push({ from: target, relation: slot.inverse, to: id, inferred: true });
+          },
+        },
       ),
     );
-    for (const [name, s] of Object.entries(entry.cls.slots)) {
-      const v = artifact.data[name];
-      if (v === undefined || s.mode !== 'reference') continue;
-      for (const [valueIndex, raw] of asArray(v).entries()) {
-        // For a reference-or-scalar union only authored links are references when
-        // a scalar branch accepts the value; an identical bare ID stays a literal.
-        if (typeof raw === 'string') {
-          const text = raw.trim();
-          const explicitLink = text.startsWith('[[') || /^\[[^\]]*\]\(/.test(text);
-          const acceptsLiteral = s.anyOf.some(
-            (expression) =>
-              expression.range && !ir.classes[expression.range] && exprOk(raw, expression, ir),
-          );
-          if (!explicitLink && acceptsLiteral) continue;
-        }
-        const referenceSpan = spanLookup(
-          entry.candidate.spans,
-          s.multivalued ? `${name}[${valueIndex}]` : name,
-        );
-        pending.push({
-          a: artifact,
-          slot: s,
-          raw: String(raw),
-          source: artifact.provenance?.properties?.[name]?.source ?? entry.candidate.source,
-          ...(artifact.provenance?.properties?.[name]?.span
-            ? { span: artifact.provenance.properties[name].span }
-            : referenceSpan === undefined
-              ? {}
-              : { span: referenceSpan }),
-          ...(artifact.provenance?.properties?.[name]
-            ? { provenance: artifact.provenance.properties[name] }
-            : {}),
-        });
-      }
-    }
-  }
-  for (const p of pending) {
-    const target = resolveTarget(p.raw, p.a, index.artifacts);
-    if (!target) {
-      index.diagnostics!.push({
-        severity: 'error',
-        code: 'BROKEN_REFERENCE',
-        message: `cannot resolve reference ${JSON.stringify(p.raw)}`,
-        source: p.source,
-        artifact: p.a.id,
-        slot: p.slot.name,
-        ...(p.span === undefined ? {} : { span: p.span }),
-      });
-      continue;
-    }
-    const targetArtifact = index.artifacts[target]!;
-    if (ir.classes[p.slot.range] && !runtimeSubclass(ir, targetArtifact.kind, p.slot.range)) {
-      index.diagnostics!.push({
-        severity: 'error',
-        code: 'REFERENCE_TYPE',
-        message: `${p.a.id}.${p.slot.name} expects ${p.slot.range}, but ${target} is ${targetArtifact.kind}`,
-        source: p.source,
-        artifact: p.a.id,
-        slot: p.slot.name,
-        ...(p.span === undefined ? {} : { span: p.span }),
-      });
-      continue;
-    }
-    index.edges!.push({
-      from: p.a.id,
-      relation: p.slot.name,
-      to: target,
-      surface: p.raw,
-      ...(p.a.provenance?.enriched && p.provenance ? { provenance: p.provenance } : {}),
-    });
-    if (p.slot.inverse)
-      index.edges!.push({ from: target, relation: p.slot.inverse, to: p.a.id, inferred: true });
   }
   for (const a of Object.values(index.artifacts))
     for (const l of a.links ?? []) {

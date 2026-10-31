@@ -57,3 +57,38 @@ export async function validGraphConsumer(root: string): Promise<GraphResult> {
     read.graph.neighborhood(['seed'], { ...options, depth: 2 }),
   );
 }
+
+export async function validSqliteConsumer(indexPath: string): Promise<string> {
+  const { openSqliteWorkspace, refreshSqliteIndex } = await import('@khaale/lore');
+  const workspace = await openSqliteWorkspace({
+    indexPath,
+    freshness: { mode: 'refresh-on-read', maxAgeMs: 1000 },
+  });
+  try {
+    await refreshSqliteIndex({ indexPath });
+    return await workspace.readSnapshot(async (read) => {
+      const page = await read.query({ limit: 10 });
+      await read.graph.neighborhood(page, { depth: 1 });
+      const kind: 'sqlite-generation' = page.snapshot.kind;
+      return kind + page.snapshot.generationId;
+    });
+  } finally {
+    await workspace.close();
+  }
+}
+
+export async function validConstraintConsumer(
+  root: string,
+): Promise<import('@khaale/lore').RecordConstraintExpression[]> {
+  const workspace = await openFilesystemWorkspace({ root });
+  const catalog = await workspace.schema.listTypes();
+  const type = await workspace.schema.describeType(catalog.items[0]!.name);
+  const constraint: import('@khaale/lore').FieldConstraints | undefined =
+    type.fields[0]?.constraints;
+  console.log(
+    constraint?.listElementsUnique,
+    type.rules?.[0]?.postconditions,
+    type.referencePaths?.[0]?.path,
+  );
+  return type.recordConstraints ?? [];
+}

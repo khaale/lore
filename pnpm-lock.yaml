@@ -56,6 +56,9 @@ importers:
       '@khaale/lore-schema':
         specifier: workspace:*
         version: link:../../packages/schema
+      '@khaale/lore-sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
 
   packages/core:
     dependencies:

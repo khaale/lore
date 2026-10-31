@@ -6,6 +6,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./sqlite-index": {
+      "types": "./dist/sqlite-index.d.ts",
+      "import": "./dist/sqlite-index.js"
     }
   },
   "scripts": {

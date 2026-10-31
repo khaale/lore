@@ -98,7 +98,7 @@ describe('public package distribution', () => {
         join(client, 'smoke.mjs'),
         `
 import assert from 'node:assert/strict';
-import { openFilesystemWorkspace } from '@khaale/lore';
+import { openFilesystemWorkspace, openSqliteWorkspace, refreshSqliteIndex } from '@khaale/lore';
 const workspace = await openFilesystemWorkspace({ root: process.argv[2] });
 const saved = await workspace.call(async read => read.retain(await read.query()));
 assert.equal(saved.status, 'completed');
@@ -110,10 +110,46 @@ const loaded = await workspace.call(async read => {
 assert.equal(loaded.status, 'completed');
 assert.equal(loaded.result.records.items.length, 2);
 assert.equal(loaded.result.graph.edges.length, 1);
+const sqlitePath = process.argv[3];
+const sqlite = await openSqliteWorkspace({indexPath: sqlitePath, freshness: {mode: 'indexed'}});
+assert.equal((await sqlite.query({limit: 2})).items.length, 2);
+assert.equal((await sqlite.describe()).snapshot.kind, 'sqlite-generation');
+assert.equal((await refreshSqliteIndex({indexPath: sqlitePath})).outcome, 'unchanged');
+await sqlite.close();
+const constrained=await openSqliteWorkspace({indexPath:process.argv[4],freshness:{mode:'indexed'}});
+const ownerType=await constrained.schema.describeType('Owner');
+assert.equal(ownerType.fields.find(f=>f.name==='labels').constraints.listElementsUnique,true);
+assert.equal((await constrained.schema.describeType('Choice')).recordConstraints[0].exactlyOneOf.length,2);
+assert.equal((await constrained.entities.get('owner')).item.properties.refinements[0].scope,'runtime');
+assert.equal((await constrained.graph.neighbors(['owner'],{relations:['refinements.scope']})).edges.length,1);
+await constrained.close();
 console.log('sdk-ok');
 `,
       );
-      expect(run(process.execPath, ['smoke.mjs', model], client).trim()).toBe('sdk-ok');
+      const constrainedRoot = join(client, 'constraints');
+      await cp(join(repository, 'test/fixtures/record-constraints'), constrainedRoot, {
+        recursive: true,
+      });
+      await writeFile(
+        join(constrainedRoot, 'records.yaml'),
+        "- {id: runtime, type: Runtime, name: Runtime}\n- id: owner\n  type: Owner\n  name: Owner\n  refinements: [{scope: '[[runtime]]', note: test}]\n  choice: {workload: work}\n",
+      );
+      run(process.execPath, [bin, 'check', '--strict', constrainedRoot], client);
+      const constrainedSqlite = join(client, 'constraints.sqlite');
+      run(
+        process.execPath,
+        [bin, 'index', '--format', 'sqlite', '--out', constrainedSqlite, constrainedRoot],
+        client,
+      );
+      const sqlitePath = join(client, 'knowledge.sqlite');
+      run(
+        process.execPath,
+        [bin, 'index', '--format', 'sqlite', '--out', sqlitePath, model],
+        client,
+      );
+      expect(
+        run(process.execPath, ['smoke.mjs', model, sqlitePath, constrainedSqlite], client).trim(),
+      ).toBe('sdk-ok');
       await cp(join(repository, 'test/types/consumer-valid.ts'), join(client, 'consumer-valid.ts'));
       await cp(
         join(repository, 'test/types/consumer-invalid.ts'),

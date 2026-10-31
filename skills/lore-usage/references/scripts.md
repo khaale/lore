@@ -144,3 +144,20 @@ calls do not roll back caller effects. Outside PTC, query/search/catalog methods
 return pages with optional `continuation`; an empty scan-budget page can still
 have a continuation. Graph inputs use only supplied items, including when a caller
 passes a page or preview.
+
+## SQLite ordinary reader
+
+This PTC reference describes `openFilesystemWorkspace`. A shared SQLite index uses
+`openSqliteWorkspace({ indexPath, freshness: { mode: 'indexed' } })` or explicit
+`refresh-on-read` policy from `@khaale/lore`, with bounded ordinary reads,
+`readSnapshot` and `close()`. It has no PTC `call`, retained results or traces.
+See [SDK documentation](../../../docs/sdk.md#persistent-sqlite-workspace).
+
+## Effective model constraints
+
+Use `schema.describeType(actualType)` for effective field `constraints`, class
+`recordConstraints`, conditional `rules` and `referencePaths`. Nested selectors
+such as `refinements.scope` work with bounded graph reads; inline objects stay
+within their owning entity and nested links are projected as target IDs. Optional
+public metadata fields describe the supported executable subset. Discovery does
+not revalidate an older saved projection; rebuild after validation upgrades.

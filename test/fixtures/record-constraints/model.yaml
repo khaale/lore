@@ -1,0 +1,81 @@
+id: https://example.org/record-constraints
+name: record-constraints
+classes:
+  Entity:
+    abstract: true
+    attributes:
+      id: { identifier: true }
+      type: { designates_type: true }
+      name: { required: true, pattern: '^.+$' }
+  Runtime:
+    is_a: Entity
+  Group:
+    is_a: Entity
+  Site:
+    is_a: Entity
+    attributes:
+      kind: { range: SiteKind, required: true }
+      parent: { range: Site }
+    rules:
+      - preconditions:
+          slot_conditions:
+            kind: { equals_string: root }
+        postconditions:
+          slot_conditions:
+            parent: { value_presence: ABSENT }
+      - preconditions:
+          slot_conditions:
+            kind: { equals_string: child }
+        postconditions:
+          slot_conditions:
+            parent: { value_presence: PRESENT }
+  Owner:
+    is_a: Runtime
+    attributes:
+      parent:
+        range: Entity
+        any_of: [{ range: Runtime }, { range: Group }]
+        multivalued: true
+        list_elements_unique: true
+      authors:
+        range: Entity
+        any_of:
+          - any_of: [{ range: Runtime }, { range: string }]
+        multivalued: true
+        list_elements_unique: true
+      chain: { range: Chain, inlined: true }
+      labels:
+        multivalued: true
+        list_elements_unique: true
+      refinements:
+        range: Refinement
+        inlined: true
+        multivalued: true
+        list_elements_unique: true
+      choice: { range: Choice, inlined: true }
+  Refinement:
+    attributes:
+      scope:
+        any_of:
+          - any_of: [{ range: Runtime }, { range: Group }]
+        inlined: false
+        required: true
+      note: { range: string }
+  Chain:
+    attributes:
+      scope: { range: Group }
+      next: { range: Chain, inlined: true }
+  ChildSite:
+    is_a: Site
+  Choice:
+    exactly_one_of:
+      - slot_conditions:
+          workload: { required: true }
+      - slot_conditions:
+          application: { required: true }
+    attributes:
+      workload: { pattern: '^.+$' }
+      application: { pattern: '^.+$' }
+enums:
+  SiteKind:
+    permissible_values: { root: {}, child: {}, other: {} }

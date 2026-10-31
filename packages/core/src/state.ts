@@ -1,4 +1,4 @@
-import type { RuntimeClass, RuntimeSchemaIR } from '@khaale/lore-schema';
+import type { RuntimeClass, RuntimeSchemaIR, SlotExpr } from '@khaale/lore-schema';
 import type { Artifact, BuildResult, Edge, SourceDescriptor, SourceSpan } from './index.js';
 
 /** A stable location in the projection that owns a semantic entity. */
@@ -123,21 +123,48 @@ function normalizedInlineValue(
   for (const [name, item] of Object.entries(value)) {
     if (item === undefined) continue;
     const slot = runtimeClass.slots[name];
-    if (slot?.mode === 'reference') continue;
     const nestedClass = slot ? ir.classes[slot.range] : undefined;
     result[name] = normalizedInlineValue(item, nestedClass, ir);
   }
   return canonicalSemanticValue(result);
 }
 
-function semanticProperties(artifact: Artifact, ir: RuntimeSchemaIR): Record<string, unknown> {
+function semanticProperties(
+  artifact: Artifact,
+  ir: RuntimeSchemaIR,
+  edges: Edge[],
+): Record<string, unknown> {
+  const hasScalarAlternative = (e: SlotExpr): boolean =>
+    !!(e.range && !ir.classes[e.range]) ||
+    [e.anyOf, e.allOf, e.exactlyOneOf].some((group) => group?.some(hasScalarAlternative));
   const runtimeClass = ir.classes[artifact.kind];
   const properties: Record<string, unknown> = {};
   for (const [name, value] of Object.entries(artifact.data)) {
     if (value === undefined) continue;
     const slot = runtimeClass?.slots[name];
-    if (slot?.mode === 'reference') continue;
+    if (slot?.mode === 'reference') {
+      if (slot.anyOf.some(hasScalarAlternative)) {
+        const project = (value: unknown) =>
+          edges.find((edge) => edge.relation === name && edge.surface === value)?.to ??
+          canonicalSemanticValue(value);
+        properties[name] = Array.isArray(value) ? value.map(project) : project(value);
+      }
+      continue;
+    }
     properties[name] = normalizedInlineValue(value, ir.classes[slot?.range ?? ''], ir);
+  }
+  for (const edge of edges) {
+    if (edge.from !== artifact.id || edge.inferred || !edge.value_path) continue;
+    let value: any = properties;
+    const keys = edge.value_path;
+    for (const key of keys.slice(0, -1)) {
+      if (value === null || typeof value !== 'object' || !Object.hasOwn(value, key)) {
+        value = undefined;
+        break;
+      }
+      value = value[key];
+    }
+    if (value !== null && typeof value === 'object') value[keys.at(-1)!] = edge.to;
   }
   return canonicalSemanticValue(properties) as Record<string, unknown>;
 }
@@ -181,6 +208,13 @@ export function snapshotFromBuildResult(result: BuildResult): SemanticSnapshot {
       'INVALID_SNAPSHOT',
       `cannot snapshot a graph with ${errors.length} error diagnostic${errors.length === 1 ? '' : 's'}`,
     );
+  const referencesByOwner = new Map<string, Edge[]>();
+  for (const edge of result.index.edges ?? [])
+    if (!edge.inferred && !edge.generic) {
+      const edges = referencesByOwner.get(edge.from) ?? [];
+      edges.push(edge);
+      referencesByOwner.set(edge.from, edges);
+    }
   const entities: Record<string, SemanticEntity> = {};
   for (const artifact of Object.values(result.index.artifacts).sort((a, b) =>
     a.id.localeCompare(b.id),
@@ -189,7 +223,11 @@ export function snapshotFromBuildResult(result: BuildResult): SemanticSnapshot {
       id: artifact.id,
       kind: artifact.kind,
       typeId: artifact.type_id,
-      properties: semanticProperties(artifact, result.schema),
+      properties: semanticProperties(
+        artifact,
+        result.schema,
+        referencesByOwner.get(artifact.id) ?? [],
+      ),
       provenance: {
         source: artifact.provenance?.source ?? artifact.source,
         physicalPath: artifact.provenance?.physicalPath ?? artifact.physical_path,

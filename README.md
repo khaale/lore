@@ -16,7 +16,7 @@ query and explore what you have written.
 | Find the right records            | Query entities by type and properties, or search their text; get structured JSON for scripts and agents.                            |
 | Understand dependencies           | Follow incoming and outgoing links, inspect a neighborhood and traverse dependency paths with graph and impact commands.            |
 | Navigate a growing knowledge base | Explore schema-configured cards, trees, overviews, neighborhoods and impact views in the console.                                   |
-| Automate documentation checks     | Run validation in CI and publish a derived JSON index only when the sources are valid.                                              |
+| Automate documentation checks     | Run validation in CI and publish a derived JSON or SQLite index only when the sources are valid.                                    |
 | Give agents focused context       | Discover domain types through the SDK, compose bounded query and graph reads, and return compact execution feedback.                |
 
 Use Lore for linked requirements and acceptance criteria, architecture catalogs and
@@ -32,7 +32,7 @@ one explicitly with `--schema` in the CLI or `schemaPath` in the SDK.
 Markdown frontmatter, declared sections, heading identities,
 companion manifests and declared tables let you add structure to existing documents.
 
-Source files stay authoritative. Lore writes only a derived JSON index, so the
+Source files stay authoritative. Lore writes only a derived JSON or SQLite index, so the
 knowledge remains local, versionable and editable with your existing tools.
 The runtime is schema-independent and needs no database or hosted service.
 
@@ -135,9 +135,14 @@ lore watch ./workspace
 `check`, `validate`, `get`, `query`, `search`, `links`, `graph` and `impact`
 read saved source files directly. They require no initialization or local state.
 `validate` runs the same strict validation as `check`, using `--root`.
-`index` publishes a derived JSON index; `watch` republishes it after valid edits.
+`index` publishes JSON by default; `--format sqlite` selects SQLite. `watch` republishes after valid edits.
 Invalid input does not replace the last valid index. `list`, `refs`, `explore`
-and the SDK use this saved index; rebuild it after changing documents.
+and the JSON SDK use this saved JSON index; rebuild it after changing documents.
+
+The supported LinkML subset includes unique lists, class-level boolean constraints
+and conditional validation rules. Typed references are checked inside inline values
+as well as on entities; SDK schema descriptions expose their effective constraints.
+See [the supported profile](skills/lore-modeling/references/linkml-support.md).
 
 ## SDK and PTC
 
@@ -170,6 +175,26 @@ pnpm sdk:example
 ```
 
 The caller owns execution; Lore does not host an execution server.
+
+### Shared SQLite index
+
+For multiple consumers, initialize a persistent projection including narrative:
+
+```sh
+lore index --format sqlite ./workspace
+lore refresh --index ./workspace/.artifact-index/index.sqlite --max-age 1s --json
+# Optional continuous publication; no daemon is required:
+lore watch --format sqlite ./workspace
+```
+
+Use `openSqliteWorkspace` from `@khaale/lore` with explicit
+`freshness: { mode: 'indexed' }` for source-independent reads, or
+`{ mode: 'refresh-on-read', maxAgeMs: 1000 }` for conditional source checking.
+Group reads with `readSnapshot` and release the workspace with `close()`.
+Unchanged refresh checks size/mtime without rebuilding; changed inputs rebuild
+and publish atomically. Failed validation retains the last valid generation.
+SQLite supports ordinary bounded SDK reads; PTC remains on the JSON workspace.
+See [SQLite policies and examples](docs/sdk.md#persistent-sqlite-workspace).
 
 ## Development
 
