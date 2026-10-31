@@ -46,7 +46,7 @@ openSqliteWorkspace SHALL open an initialized indexPath with an explicit indexed
 
 ### Requirement: SQLite read freshness policies
 
-Indexed policy SHALL read the current committed projection without source checks and report sourceFreshness not-checked. Refresh-on-read SHALL complete or reuse the core refresh contract once before an operation or grouped callback, using maxAgeMs default zero. Its results SHALL report checked with checkedAt, meaning the accepted completed check rather than continuous filesystem freshness.
+Indexed policy SHALL read the current committed projection without source checks and report sourceFreshness not-checked. Refresh-on-read SHALL complete or reuse the core refresh contract once before an operation or grouped callback, using maxAgeMs default zero. Its results SHALL report checked with checkedAt, meaning the accepted completed check rather than continuous filesystem freshness. A rebuild's input baseline SHALL be observed before source extraction; checked SHALL NOT imply a post-build source check or that all authored files were read from one instant in time.
 
 #### Scenario: Published-only operation
 

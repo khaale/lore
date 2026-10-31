@@ -67,6 +67,5 @@ contract and its limits before using a successful parse, an empty result or a
 coverage flag as evidence of broader support. Requirements describe current
 behavior, not desired future changes.
 
-[Coverage and verification](verification.md) records the source/API review and
-remaining evidence limits. openspec/ is tracked planning documentation; .agents/ remains local and ignored.
+openspec/ is tracked planning documentation; .agents/ remains local and ignored.
 Neither is a package or runtime dependency.

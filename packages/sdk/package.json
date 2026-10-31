@@ -19,7 +19,8 @@
   "dependencies": {
     "@khaale/lore-core": "workspace:*",
     "@khaale/lore-filesystem": "workspace:*",
-    "@khaale/lore-schema": "workspace:*"
+    "@khaale/lore-schema": "workspace:*",
+    "@khaale/lore-graph": "workspace:*"
   },
   "private": true
 }

@@ -59,7 +59,8 @@
     "README.md",
     "LICENSE",
     "PUBLISH.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "examples/source-documents"
   ],
   "publishConfig": {
     "access": "public"

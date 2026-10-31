@@ -48,7 +48,10 @@ describe('public package distribution', () => {
       ]);
       for (const file of entries) {
         expect(
-          allowedFiles.has(file) || file.startsWith('dist/') || file.startsWith('skills/'),
+          allowedFiles.has(file) ||
+            file.startsWith('dist/') ||
+            file.startsWith('skills/') ||
+            file.startsWith('examples/source-documents/'),
           file,
         ).toBe(true);
         expect(file).not.toMatch(/\.test\.[cm]?js$/);
@@ -123,6 +126,12 @@ assert.equal((await constrained.schema.describeType('Choice')).recordConstraints
 assert.equal((await constrained.entities.get('owner')).item.properties.refinements[0].scope,'runtime');
 assert.equal((await constrained.graph.neighbors(['owner'],{relations:['refinements.scope']})).edges.length,1);
 await constrained.close();
+const projected=await openSqliteWorkspace({indexPath:process.argv[5],freshness:{mode:'indexed'}});
+assert.equal((await projected.query({type:'ApiOperation'})).items.length,2);
+const table=(await projected.query({type:'DatabaseObject',where:{name:{eq:'public.заказ'}}})).items[0];
+assert.equal(table.properties.definition.columns[0].data_type,'uuid');
+assert.equal((await projected.graph.neighbors([table.id],{relations:['foreign_keys.target']})).edges.length,1);
+await projected.close();
 console.log('sdk-ok');
 `,
       );
@@ -147,8 +156,22 @@ console.log('sdk-ok');
         [bin, 'index', '--format', 'sqlite', '--out', sqlitePath, model],
         client,
       );
+      const sourcesRoot = join(installed, 'examples/source-documents');
+      expect(run(process.execPath, [bin, 'check', sourcesRoot], client)).toContain(
+        'checked: 8 artifacts',
+      );
+      const sourcesSqlite = join(client, 'sources.sqlite');
+      run(
+        process.execPath,
+        [bin, 'index', '--format', 'sqlite', '--out', sourcesSqlite, sourcesRoot],
+        client,
+      );
       expect(
-        run(process.execPath, ['smoke.mjs', model, sqlitePath, constrainedSqlite], client).trim(),
+        run(
+          process.execPath,
+          ['smoke.mjs', model, sqlitePath, constrainedSqlite, sourcesSqlite],
+          client,
+        ).trim(),
       ).toBe('sdk-ok');
       await cp(join(repository, 'test/types/consumer-valid.ts'), join(client, 'consumer-valid.ts'));
       await cp(

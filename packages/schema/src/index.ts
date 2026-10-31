@@ -1,5 +1,19 @@
 import { createHash } from 'node:crypto';
 import { readFile, access } from 'node:fs/promises';
+import {
+  compileSources,
+  SourceDeclarationError,
+  SOURCES_ANNOTATION,
+  type SourcePlan,
+} from './sources.js';
+export type {
+  SourcePlan,
+  SourceEntityRule,
+  SourceExpression,
+  SourceSelection,
+  SourcePath,
+  SourceKey,
+} from './sources.js';
 import { isAbsolute, resolve, dirname, extname, relative } from 'node:path';
 import { parseDocument } from 'yaml';
 
@@ -194,6 +208,7 @@ export type RuntimeSchemaIR = {
   enums: Record<string, RuntimeEnum>;
   designators: Record<string, Record<string, string>>;
   headingIdentity?: HeadingIdentityRule[];
+  sources?: SourcePlan[];
 };
 const explicitInlineSlots = new WeakSet<RuntimeSlot>();
 const generatedClassOrigins = new WeakSet<ClassDef>();
@@ -227,6 +242,7 @@ const SUPPORTED_LORE_ANNOTATIONS = [
   'lore:explore_views',
   'lore:markdown_selectors',
   'lore:heading_identity',
+  'lore:sources',
 ] as const;
 const primitives = new Set([
   'string',
@@ -1309,9 +1325,50 @@ async function resolveClosure(
     prefixes: {},
     sourceFiles: order,
   };
+  const composedSources: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const abs of order) {
     const current = loaded.get(abs);
     if (!current) continue;
+    const sourceDeclarations = current.annotations?.[SOURCES_ANNOTATION];
+    if (sourceDeclarations !== undefined) {
+      if (
+        !sourceDeclarations ||
+        typeof sourceDeclarations !== 'object' ||
+        Array.isArray(sourceDeclarations)
+      ) {
+        diagnostics.push(
+          diagnostic(
+            'invalid-schema',
+            'INVALID_SOURCES',
+            'lore:sources must be a mapping',
+            abs,
+            SOURCES_ANNOTATION,
+          ),
+        );
+      } else {
+        merged.annotations = { ...merged.annotations, [SOURCES_ANNOTATION]: composedSources };
+        const target = composedSources;
+        for (const [name, declaration] of Object.entries(sourceDeclarations)) {
+          if (Object.hasOwn(target, name))
+            diagnostics.push(
+              diagnostic(
+                'composition',
+                'DUPLICATE_SOURCE',
+                `Duplicate source ${name}`,
+                abs,
+                `${SOURCES_ANNOTATION}.${name}`,
+              ),
+            );
+          else
+            Object.defineProperty(target, name, {
+              value: declaration,
+              enumerable: true,
+              configurable: true,
+              writable: true,
+            });
+        }
+      }
+    }
     for (const [k, v] of Object.entries(current.prefixes ?? {})) {
       if (merged.prefixes?.[k] && merged.prefixes[k] !== v)
         diagnostics.push(
@@ -1399,11 +1456,11 @@ function checkProfile(s: AssertedSchema): CompilerDiagnostic[] {
             `${scope}.${k}`,
           ),
         );
-      if (k === 'lore:heading_identity' && scope !== 'schema') {
+      if ((k === 'lore:heading_identity' || k === SOURCES_ANNOTATION) && scope !== 'schema') {
         ds.push(
           diagnostic(
             'invalid-schema',
-            'HEADING_IDENTITY_SCOPE',
+            k === SOURCES_ANNOTATION ? 'SOURCES_SCOPE' : 'HEADING_IDENTITY_SCOPE',
             `${scope} uses schema-level-only Lore annotation ${k}`,
             undefined,
             `${scope}.${k}`,
@@ -1560,6 +1617,21 @@ function checkProfile(s: AssertedSchema): CompilerDiagnostic[] {
   };
   checkExtra('schema', s.extra, allowedSchema);
   checkAnn('schema', s.annotations);
+  for (const [kind, definitions] of [
+    ['type', s.types],
+    ['enum', s.enums],
+  ] as const)
+    for (const [name, definition] of Object.entries(definitions))
+      if (Object.hasOwn(annotations(definition.extra?.annotations) ?? {}, SOURCES_ANNOTATION))
+        ds.push(
+          diagnostic(
+            'invalid-schema',
+            'SOURCES_SCOPE',
+            `${kind}.${name} uses schema-level-only Lore annotation ${SOURCES_ANNOTATION}`,
+            undefined,
+            `${kind}.${name}.annotations.${SOURCES_ANNOTATION}`,
+          ),
+        );
   for (const [name, c] of Object.entries(s.classes)) {
     checkExtra(`class.${name}`, c.extra, allowedClass);
     checkAnn(`class.${name}`, c.annotations);
@@ -2059,7 +2131,7 @@ export async function compileSchema(
   const profile = checkProfile(loaded.schema);
   if (profile.length) return { ok: false, diagnostics: profile };
   try {
-    const ir = finalizeIR(normalize(loaded.schema));
+    const ir = compileIR(loaded.schema);
     const hash = schemaHash(loaded.schema);
     return {
       ok: true,
@@ -2068,7 +2140,11 @@ export async function compileSchema(
   } catch (e) {
     return {
       ok: false,
-      diagnostics: [diagnostic('normalization', 'NORMALIZATION_FAILED', String(e))],
+      diagnostics: [
+        e instanceof SourceDeclarationError
+          ? diagnostic('invalid-schema', 'INVALID_SOURCES', e.message, path, e.path)
+          : diagnostic('normalization', 'NORMALIZATION_FAILED', String(e)),
+      ],
     };
   }
 }
@@ -2084,7 +2160,13 @@ export async function compileSchemaOrThrow(
 export function normalizeSchema(schema: AssertedSchema): RuntimeSchemaIR {
   const ds = checkProfile(schema);
   if (ds.length) throw new Error(ds.map((x) => x.message).join('\n'));
-  return finalizeIR(normalize(schema));
+  return compileIR(schema);
+}
+function compileIR(schema: AssertedSchema): RuntimeSchemaIR {
+  const ir = finalizeIR(normalize(schema));
+  const sources = compileSources(schema.annotations?.[SOURCES_ANNOTATION], ir);
+  if (sources.length) ir.sources = sources;
+  return ir;
 }
 /** Hash authored schema content; generated file locations are not schema semantics. */
 export function schemaHash(schema: AssertedSchema): string {

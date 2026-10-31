@@ -73,6 +73,90 @@ const candidate = (data: Record<string, unknown>): Candidate => ({
   sections: [],
 });
 describe('core graph', () => {
+  it('preserves direct IDs, path resolution and ambiguous ID/stem collisions', () => {
+    const thing = compiled.ir.classes.Thing!;
+    const withReferences = {
+      ...compiled,
+      ir: {
+        ...compiled.ir,
+        classes: {
+          Thing: {
+            ...thing,
+            slots: {
+              ...thing.slots,
+              depends: {
+                ...thing.slots.id!,
+                name: 'depends',
+                identifier: false,
+                required: false,
+                multivalued: true,
+                range: 'Thing',
+                mode: 'reference' as const,
+              },
+            },
+          },
+        },
+      },
+    };
+    const document = (id: string, path: string): Candidate => ({
+      ...candidate({ id, kind: 'Thing' }),
+      source: path,
+      physicalPath: path,
+    });
+    const source = document('document', '/workspace/document.md');
+    source.data.depends = ['target', '[[target]]', '[Target](./target.md)', '[[same|Label]]'];
+    source.links = [{ syntax: 'markdown', target: './target.md' }];
+    const result = buildGraph(
+      [
+        source,
+        document('target', '/workspace/elsewhere.md'),
+        document('other', '/workspace/target.md'),
+        document('same', '/workspace/same.md'),
+      ],
+      { root: '/workspace', compiled: withReferences },
+    );
+    expect(
+      result.index.edges?.map(({ relation, to, surface }) => ({ relation, to, surface })),
+    ).toEqual([
+      { relation: 'depends', to: 'other', surface: '[Target](./target.md)' },
+      { relation: 'depends', to: 'same', surface: '[[same|Label]]' },
+      { relation: 'depends', to: 'target', surface: 'target' },
+      { relation: 'references', to: 'other', surface: './target.md' },
+    ]);
+    expect(result.index.diagnostics?.map(({ code, message }) => ({ code, message }))).toEqual([
+      { code: 'BROKEN_REFERENCE', message: 'cannot resolve reference "[[target]]"' },
+    ]);
+  });
+
+  it('keeps shared physical paths and duplicate file stems ambiguous', () => {
+    const document = (id: string, source: string, physicalPath = source): Candidate => ({
+      ...candidate({ id, kind: 'Thing' }),
+      source,
+      physicalPath,
+    });
+    const source = document('document', '/workspace/document.md');
+    source.links = [
+      { syntax: 'markdown', target: './group.md' },
+      { syntax: 'wiki', target: '[[group]]' },
+      { syntax: 'wiki', target: '[[duplicate]]' },
+    ];
+    const result = buildGraph(
+      [
+        source,
+        document('first', '/workspace/group.md#one', '/workspace/group.md'),
+        document('second', '/workspace/group.md#two', '/workspace/group.md'),
+        document('left', '/workspace/left/duplicate.md'),
+        document('right', '/workspace/right/duplicate.md'),
+      ],
+      { root: '/workspace', compiled },
+    );
+    expect(result.index.edges).toEqual([]);
+    expect(result.index.diagnostics?.map(({ code, message }) => ({ code, message }))).toEqual([
+      { code: 'UNRESOLVED_WIKILINK', message: 'cannot resolve wiki-link [[[[group]]]]' },
+      { code: 'UNRESOLVED_WIKILINK', message: 'cannot resolve wiki-link [[[[duplicate]]]]' },
+    ]);
+  });
+
   it('builds identity, reports, and bounded exploration', () => {
     const result = buildGraph([candidate({ id: 'a', kind: 'Thing' })], {
       root: '/workspace',

@@ -10,6 +10,9 @@ export default defineConfig({
       '@khaale/lore-schema': fileURLToPath(
         new URL('./packages/schema/src/index.ts', import.meta.url),
       ),
+      '@khaale/lore-graph': fileURLToPath(
+        new URL('./packages/graph/src/index.ts', import.meta.url),
+      ),
       '@khaale/lore-sdk': fileURLToPath(new URL('./packages/sdk/src/index.ts', import.meta.url)),
     },
   },

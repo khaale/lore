@@ -81,14 +81,19 @@ Refresh SHALL compare the eligible input path set and source baseline under the 
 - **WHEN** an eligible record changes size or mtime
 - **THEN** refresh validates and publishes a new generation when valid
 
-### Requirement: Refresh source stability
+### Requirement: Single pass rebuild inputs
 
-A successful changed-input publication SHALL bind its baseline to the inputs checked around the build. An observed change during building SHALL fail refresh without publishing a candidate. Source verification SHALL describe a completed size/mtime check, not a transactional snapshot of the authored filesystem or content-hash verification.
+A rebuild SHALL compile the model once and discover eligible source paths once using that compiled dependency closure. It SHALL reuse the discovered list for input size/mtime collection before source extraction and for reading candidates. It SHALL NOT perform a post-build source-stability scan. A validated candidate SHALL publish even if authored files change during the build. A later source check SHALL compare against the retained pre-read baseline. Source verification SHALL describe a completed size/mtime check, not a transactional snapshot of the authored filesystem or content-hash verification.
 
 #### Scenario: Source changes during build
 
-- **WHEN** the observed input set or stamps differ before and after the build
-- **THEN** the previous generation remains available and refresh reports source instability
+- **WHEN** an input is edited after its recorded baseline while a valid candidate is being read or built
+- **THEN** the candidate read by that build publishes and a later source check detects the changed path set or size/mtime
+
+#### Scenario: Shared discovered file list
+
+- **WHEN** a full rebuild reads eligible authored sources
+- **THEN** stamp collection and source extraction reuse one discovered list rather than walking the source tree again
 
 #### Scenario: Preserved metadata
 

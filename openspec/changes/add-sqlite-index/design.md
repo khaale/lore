@@ -1,5 +1,10 @@
 ## Context
 
+The implemented compact storage representation is specified by the successor
+[compact-sqlite-projection](../compact-sqlite-projection/design.md). This document
+continues to own source freshness, coordination and publication lifecycle; older
+storage measurements below describe their measured historical builds.
+
 See [proposal.md](proposal.md) for motivation and scope. The existing source pipeline compiles a local model, discovers inputs, parses records, builds/validates a graph and atomically publishes JSON v2. JSON SDK readers load that projection, observe source stamps and reject changed inputs. These behaviors have active public consumers, including bb-lore.
 
 Read-only SA measurements on the existing Node 24 runtime provide a useful baseline, not an SLA:
@@ -83,8 +88,8 @@ Capture the current completed-attempt sequence before waiting for refresh owners
 1. If a compatible attempt completed after the request observed metadata, reuse that result. Propagate its failure if it failed. This is what prevents two overlapping zero-age requests from scanning twice.
 2. Otherwise, a successful check within maxAgeMs can be reused. A more recent failed attempt must not be hidden by an older success; within a nonzero age window, reuse the failure, then allow a new attempt after that window. Zero age allows the next non-overlapping request to attempt repair immediately.
 3. Otherwise discover inputs and compare the baseline. If unchanged, commit only completed-check/attempt metadata. Do not parse source contents or rewrite entity/relation rows.
-4. On change, compile and build/validate a candidate. Compare observed inputs before/after the build, using the actual compiled dependency closure for the candidate. If inputs change observably, reject the attempt without automatic rebuild retry.
-5. For a valid stable candidate, replace the data/model/baseline and generation in the transaction and commit. For a validation/stability failure detected before mutation, commit only failed-attempt metadata and keep valid data. I/O/transaction failure rolls back; recording a failure is best-effort when storage itself is unavailable.
+4. On change, compile the model once, discover eligible files once using its dependency closure, and collect size/mtime before reading. Reuse that file list for source extraction and build/validate the candidate. Do not scan again after the build or reject publication solely because sources changed while building.
+5. For a valid candidate, replace the data/model/pre-read baseline and generation in the transaction and commit. For a validation failure detected before mutation, commit only failed-attempt metadata and keep valid data. I/O/transaction failure rolls back; recording a failure is best-effort when storage itself is unavailable. A later source check discovers edits made after the recorded baseline, subject to maxAgeMs reuse.
 
 A waiter that starts after a completed zero-age check performs a new check: overlap reuse is not an implicit TTL. The sequence is shared coordination state, not an audit log; retain only the latest attempt, not historical attempts.
 
@@ -158,9 +163,15 @@ For the existing JSON reader, make canonicalGraphView lazy and shared by the loa
 
 The input baseline must include discovery/model-selection state and additions/deletions, not just stat calls on known record files. Use the exact compiled dependency closure for a valid publication; do not make the regex-based broken-schema watch helper the authoritative dependency manifest. Exclude the SQLite file and its WAL/SHM companions from authored discovery.
 
-Pre/post size/mtime checks catch observed changes during a build but are not an authored-filesystem transaction and cannot catch deliberately preserved timestamps/size. Successful shared check metadata always names what was checked and when. This retains the existing stamp-based limitation rather than promising stronger verification from SQLite alone.
+Collect size/mtime once before source extraction and retain that baseline for subsequent refresh checks. Rebuilds do not promise an atomic authored-filesystem snapshot or verify source stability after reading. Edits during a build do not themselves reject a validated candidate; later checks discover changed paths or stamps. Deliberately preserved timestamps/size remain outside the detection contract. Successful shared check metadata names the completed source observation rather than promising a post-build check.
 
 Do not rename/replace a live SQLite database file under open WAL connections. Publish within the database transaction. Checkpoint policy begins with SQLite defaults; keep read scopes short and surface contention within the configured timeout. WAL assumes processes on one local host, not a shared network database service.
+
+During full publication, drop secondary indexes and build them in bulk after
+loading rows, inside the same transaction. Primary/unique indexes remain active.
+No-change refresh does not rebuild indexes. Source extraction reads at most 16
+files concurrently and consumes each batch in discovery order, preserving
+candidate and diagnostic ordering.
 
 ### 10. Verification and delivery
 

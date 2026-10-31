@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import type { Artifact, IndexV2, SemanticRelation } from '@khaale/lore-core';
 import type { RuntimeSchemaIR } from '@khaale/lore-schema';
+import { CompactReader, EDGE_SELECT, EDGE_COLUMNS, EDGE_JOINS } from './sqlite-storage.js';
 import {
   SDK_LIMITS,
   SdkError,
@@ -11,7 +12,6 @@ import {
   type SourceEntity,
   type GraphView,
   type GraphArc,
-  type CanonicalGraphEdge,
   type NormalizedGraphOptions,
   type SnapshotInfo,
   type ReadSnapshot,
@@ -89,10 +89,11 @@ function sqliteSource(
   const cache = new Map<string, SourceEntity>();
   const artifacts = new Map<string, Artifact>();
   const relations = new Map<string, SemanticRelation[]>();
-  const readNarrative = db.prepare('SELECT narrative FROM lore_entities WHERE id=?');
+  const compact = new CompactReader(db);
+  const readNarrative = db.prepare('SELECT narrative FROM lore_entities WHERE external_id=?');
   const decodeEntity = (row: Record<string, unknown>): SourceEntity => {
-    const entity = JSON.parse(String(row.entity)) as SourceEntity;
-    artifacts.set(entity.id, JSON.parse(String(row.artifact)) as Artifact);
+    const entity = compact.entity(row);
+    artifacts.set(entity.id, compact.artifact(row, entity));
     let loaded = false;
     let narrative: string | undefined;
     Object.defineProperty(entity, 'narrative', {
@@ -109,7 +110,7 @@ function sqliteSource(
     cache.set(entity.id, entity);
     return entity;
   };
-  const entityStatement = db.prepare('SELECT entity,artifact FROM lore_entities WHERE id=?');
+  const entityStatement = db.prepare('SELECT * FROM lore_entities WHERE external_id=?');
   const get = (id: string): SourceEntity | undefined => {
     check();
     if (cache.has(id)) return cache.get(id);
@@ -139,9 +140,11 @@ function sqliteSource(
         check();
         if (!relations.has(id)) {
           const values = db
-            .prepare('SELECT value FROM lore_relations WHERE from_id=? OR to_id=? ORDER BY rowid')
+            .prepare(
+              'SELECT * FROM lore_relations WHERE from_id=(SELECT id FROM lore_entities WHERE external_id=?) OR to_id=(SELECT id FROM lore_entities WHERE external_id=?) ORDER BY id',
+            )
             .all(id, id)
-            .map((row) => JSON.parse(String(row.value)) as SemanticRelation)
+            .map((row) => compact.relation(row))
             .filter((value) => !value.generic);
           relations.set(id, values);
         }
@@ -165,9 +168,7 @@ function sqliteSource(
       scan(position, count) {
         check();
         return db
-          .prepare(
-            'SELECT entity,artifact FROM lore_entities WHERE ordinal>=? ORDER BY ordinal LIMIT ?',
-          )
+          .prepare('SELECT * FROM lore_entities WHERE id>? ORDER BY id LIMIT ?')
           .all(position, count)
           .map(decodeEntity);
       },
@@ -178,17 +179,15 @@ function sqliteSource(
       fullIndex() {
         check();
         const all: IndexV2 = { ...index, artifacts: {}, edges: [] };
-        for (const row of db
-          .prepare('SELECT id,artifact,narrative FROM lore_entities ORDER BY ordinal')
-          .iterate()) {
-          const artifact = JSON.parse(String(row.artifact)) as Artifact;
+        for (const row of db.prepare('SELECT * FROM lore_entities ORDER BY id').iterate()) {
+          const artifact = compact.artifact(row, compact.entity(row));
           if (typeof row.narrative === 'string') artifact.body = row.narrative;
-          all.artifacts[String(row.id)] = artifact;
+          all.artifacts[artifact.id] = artifact;
         }
         all.edges = db
-          .prepare('SELECT value FROM lore_relations ORDER BY rowid')
+          .prepare('SELECT * FROM lore_relations ORDER BY id')
           .all()
-          .map((row) => JSON.parse(String(row.value)) as SemanticRelation);
+          .map((row) => compact.relation(row));
         return all;
       },
     },
@@ -196,28 +195,39 @@ function sqliteSource(
   let graph: GraphView | undefined;
   source.graphView = () => {
     check();
-    graph ??= sqliteGraph(db, source, meta);
+    graph ??= sqliteGraph(db, source, meta, compact);
     return graph;
   };
   return source;
 }
 
-function sqliteGraph(db: DatabaseSync, source: ReadSource, meta: SqliteMetadata): GraphView {
+function sqliteGraph(
+  db: DatabaseSync,
+  source: ReadSource,
+  meta: SqliteMetadata,
+  compact: CompactReader,
+): GraphView {
   const edges = {
     length: meta.edgeCount,
     *[Symbol.iterator]() {
-      for (const row of db.prepare('SELECT value FROM lore_edges ORDER BY ordinal').iterate())
-        yield JSON.parse(String(row.value)) as CanonicalGraphEdge;
+      for (const row of db.prepare(`${EDGE_SELECT} ORDER BY e.id`).iterate())
+        yield compact.edge(row);
     },
   };
-  const arcSelect = `SELECT a.from_id,a.to_id,a.relation,a.mode,e.value FROM lore_arcs a JOIN lore_edges e ON e.edge_key=a.edge_key`;
-  const decodeArc = (row: Record<string, unknown>): GraphArc => ({
-    from: String(row.from_id),
-    to: String(row.to_id),
-    relation: String(row.relation),
-    mode: row.mode as 'in' | 'out',
-    edge: JSON.parse(String(row.value)) as CanonicalGraphEdge,
-  });
+  const arcSelect = `SELECT ${EDGE_COLUMNS},a.current_id,a.to_id AS arc_to,a.predicate_id AS arc_predicate,a.mode FROM lore_arcs a JOIN lore_edges e ON e.id=a.edge_id ${EDGE_JOINS}`;
+  const arcsForEdge = db.prepare(
+    'SELECT current_id,to_id,predicate_id,mode FROM lore_arcs WHERE edge_id=? ORDER BY current_id,ordinal',
+  );
+  const decodeArc = (row: Record<string, unknown>): GraphArc => {
+    const edge = compact.edge(row);
+    return {
+      from: compact.external(Number(row.current_id)),
+      to: compact.external(Number(row.arc_to)),
+      relation: compact.predicate(Number(row.arc_predicate)),
+      mode: row.mode ? 'out' : 'in',
+      edge,
+    };
+  };
   return {
     edges,
     byId: { get: (id) => source.entitiesById.get(id), size: meta.entityCount },
@@ -228,25 +238,39 @@ function sqliteGraph(db: DatabaseSync, source: ReadSource, meta: SqliteMetadata)
     ),
     arcsByCurrent: {
       get: (id) =>
-        db.prepare(`${arcSelect} WHERE a.current_id=? ORDER BY a.ordinal`).all(id).map(decodeArc),
-    },
-    arcsByEdge: {
-      get: (id) =>
         db
-          .prepare(`${arcSelect} WHERE a.edge_key=? ORDER BY a.current_id,a.ordinal`)
+          .prepare(
+            `${arcSelect} WHERE a.current_id=(SELECT id FROM lore_entities WHERE external_id=?) ORDER BY a.ordinal`,
+          )
           .all(id)
           .map(decodeArc),
     },
+    arcsByEdge: {
+      get(key) {
+        const id = compact.edgeId(key);
+        if (id === undefined) return undefined;
+        const edge = compact.edgeById(id);
+        return arcsForEdge.all(id).map((row) => ({
+          edge,
+          from: compact.external(Number(row.current_id)),
+          to: compact.external(Number(row.to_id)),
+          relation: compact.predicate(Number(row.predicate_id)),
+          mode: row.mode ? ('out' as const) : ('in' as const),
+        }));
+      },
+    },
     *arcs(current: string, options: NormalizedGraphOptions) {
       const parameters: SQLInputValue[] = [current];
-      const conditions = ['a.current_id=?'];
+      const conditions = ['a.current_id=(SELECT id FROM lore_entities WHERE external_id=?)'];
       if (options.relations) {
-        conditions.push(`a.relation IN (${[...options.relations].map(() => '?').join(',')})`);
+        conditions.push(
+          `a.predicate_id IN (SELECT id FROM lore_predicates WHERE name IN (${[...options.relations].map(() => '?').join(',')}))`,
+        );
         parameters.push(...options.relations);
       }
       if (options.direction !== 'both') {
         conditions.push('a.mode=?');
-        parameters.push(options.direction);
+        parameters.push(options.direction === 'out' ? 1 : 0);
       }
       const seen = new Set<string>();
       for (const row of db
@@ -262,14 +286,16 @@ function sqliteGraph(db: DatabaseSync, source: ReadSource, meta: SqliteMetadata)
     },
     *candidates(ids: Set<string>) {
       if (!ids.size) return;
+      // Every graph result predicate requires both endpoints in the selected scope.
+      // Filter before decoding provenance-heavy candidates at large hubs.
       const parameters = [...ids];
       const slots = parameters.map(() => '?').join(',');
       for (const row of db
         .prepare(
-          `SELECT value FROM lore_edges WHERE from_id IN (${slots}) OR to_id IN (${slots}) ORDER BY ordinal`,
+          `${EDGE_SELECT} WHERE e.from_id IN (SELECT id FROM lore_entities WHERE external_id IN (${slots})) AND e.to_id IN (SELECT id FROM lore_entities WHERE external_id IN (${slots})) ORDER BY e.id`,
         )
         .iterate(...parameters, ...parameters))
-        yield JSON.parse(String(row.value)) as CanonicalGraphEdge;
+        yield compact.edge(row);
     },
   };
 }

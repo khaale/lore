@@ -3,17 +3,17 @@ import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { buildGraph, checkReport, type Diagnostic, type IndexV2 } from '@khaale/lore-core';
+import { buildGraph, checkReport, type IndexV2 } from '@khaale/lore-core';
 import { compileSchema, type RuntimeSchemaIR } from '@khaale/lore-schema';
 import {
-  discover,
   MODEL_FILENAMES,
-  parseFile,
+  discover,
+  readSources,
   resolveSchemaPath,
   snapshot,
   type FileStamp,
 } from '@khaale/lore-filesystem';
-import { canonicalGraphView, projectionSource } from './reader.js';
+import { COMPACT_SCHEMA, publishCompact } from './sqlite-storage.js';
 
 export const SQLITE_ERROR = {
   INDEX_NOT_FOUND: 'INDEX_NOT_FOUND',
@@ -60,7 +60,7 @@ export type SqliteIndexStatus = {
   lastAttempt: Attempt;
 };
 export type SqliteMetadata = SqliteIndexStatus & {
-  version: 1;
+  version: 2;
   config: SqliteSourceConfig;
   dependencies: string[];
   entityCount: number;
@@ -79,32 +79,13 @@ export type InitializeSqliteOptions = {
   busyTimeoutMs?: number;
 };
 
-const VERSION = 1;
+const VERSION = 2;
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS lore_meta (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS lore_model (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS lore_inputs (path TEXT PRIMARY KEY, size REAL NOT NULL, mtime REAL NOT NULL);
-CREATE TABLE IF NOT EXISTS lore_entities (
-  id TEXT PRIMARY KEY, ordinal INTEGER NOT NULL UNIQUE, type TEXT NOT NULL,
-  entity TEXT NOT NULL, artifact TEXT NOT NULL, narrative TEXT
-);
-CREATE INDEX IF NOT EXISTS lore_entities_type ON lore_entities(type, ordinal);
-CREATE TABLE IF NOT EXISTS lore_relations (from_id TEXT NOT NULL, to_id TEXT NOT NULL, value TEXT NOT NULL);
-CREATE INDEX IF NOT EXISTS lore_relations_from ON lore_relations(from_id);
-CREATE INDEX IF NOT EXISTS lore_relations_to ON lore_relations(to_id);
-CREATE TABLE IF NOT EXISTS lore_edges (
-  edge_key TEXT PRIMARY KEY, ordinal INTEGER NOT NULL UNIQUE, from_id TEXT NOT NULL, to_id TEXT NOT NULL, value TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS lore_edges_from ON lore_edges(from_id);
-CREATE INDEX IF NOT EXISTS lore_edges_to ON lore_edges(to_id);
-CREATE TABLE IF NOT EXISTS lore_arcs (
-  current_id TEXT NOT NULL, ordinal INTEGER NOT NULL, edge_key TEXT NOT NULL,
-  from_id TEXT NOT NULL, to_id TEXT NOT NULL, relation TEXT NOT NULL, mode TEXT NOT NULL,
-  PRIMARY KEY(current_id, ordinal)
-);
-CREATE INDEX IF NOT EXISTS lore_arcs_edge ON lore_arcs(edge_key);
+${COMPACT_SCHEMA}
 `;
-
 export function validateRefreshOptions(options: RefreshSqliteOptions): {
   maxAgeMs: number;
   busyTimeoutMs: number;
@@ -152,13 +133,15 @@ export function readSqliteMetadata(db: DatabaseSync): SqliteMetadata {
   if (value.version !== VERSION || !value.generationId || !value.config || !value.lastAttempt)
     throw new SqliteIndexError(
       SQLITE_ERROR.INDEX_REBUILD_REQUIRED,
-      'Unsupported SQLite projection version; rebuild the index',
+      'Unsupported SQLite projection version; close consumers, remove the derived database and its sidecars, then rebuild with lore index --format sqlite',
     );
   try {
     // Validate storage shape without loading entity, narrative or graph contents.
     db.prepare(
-      `SELECT m.value,e.entity,e.artifact,e.narrative,g.value,a.edge_key,r.value,i.path
-      FROM lore_model m,lore_entities e,lore_edges g,lore_arcs a,lore_relations r,lore_inputs i LIMIT 0`,
+      `SELECT m.value,e.external_id,e.rank,e.type_id,e.properties,e.raw_delta,e.provenance,e.narrative,
+      g.relation_id,a.edge_id,r.predicate_id,i.path,t.name,t.uri,f.path,p.rank,p.inverse_id,v.ordinal
+      FROM lore_model m,lore_entities e,lore_edges g,lore_arcs a,lore_relations r,lore_inputs i,
+      lore_types t,lore_files f,lore_predicates p,lore_edge_presentations v LIMIT 0`,
     ).all();
     if (!db.prepare('SELECT 1 FROM lore_model WHERE id=1').get())
       throw new Error('Missing read model');
@@ -243,20 +226,24 @@ async function inputs(
   config: SqliteSourceConfig,
   indexPath: string,
   dependencies: string[],
+  discoveredFiles?: readonly string[],
 ): Promise<FileStamp[]> {
   const schemaPath = await resolveSchemaPath(config.root, config.schemaPath);
-  return snapshot({
-    root: config.root,
-    schemaPath,
-    ignorePath: config.ignorePath,
-    outputPath: indexPath,
-    dependencies: [
-      ...dependencies,
-      ...(config.schemaPath === undefined
-        ? MODEL_FILENAMES.map((name) => join(config.root, name))
-        : []),
-    ],
-  });
+  return snapshot(
+    {
+      root: config.root,
+      schemaPath,
+      ignorePath: config.ignorePath,
+      outputPath: indexPath,
+      dependencies: [
+        ...dependencies,
+        ...(config.schemaPath === undefined
+          ? MODEL_FILENAMES.map((name) => join(config.root, name))
+          : []),
+      ],
+    },
+    discoveredFiles,
+  );
 }
 function baseline(db: DatabaseSync): FileStamp[] {
   return db
@@ -278,26 +265,18 @@ async function compile(path: string) {
 }
 async function build(config: SqliteSourceConfig, indexPath: string) {
   const schemaPath = await resolveSchemaPath(config.root, config.schemaPath);
-  // Discover the candidate closure, then observe it before the authoritative compile/build.
-  const preliminary = await compile(schemaPath);
-  const before = await inputs(config, indexPath, preliminary.dependencies);
   const compiled = await compile(schemaPath);
-  const files = await discover({
+  const options = {
     root: config.root,
     schemaPath,
     ignorePath: config.ignorePath,
     outputPath: indexPath,
     dependencies: compiled.dependencies,
-  });
-  const candidates = [];
-  const failures: Diagnostic[] = [];
-  for (const path of files) {
-    try {
-      candidates.push(...(await parseFile(path)));
-    } catch (error) {
-      failures.push({ severity: 'error', code: 'PARSE', source: path, message: String(error) });
-    }
-  }
+  };
+  const files = await discover(options);
+  // Retain the observed baseline for the next refresh, without rescanning after reading.
+  const stamps = await inputs(config, indexPath, compiled.dependencies, files);
+  const { candidates, diagnostics: failures } = await readSources(options, compiled, files);
   const result = buildGraph(candidates, { root: config.root, compiled, strict: config.strict });
   result.index.diagnostics = [...(result.index.diagnostics ?? []), ...failures];
   const report = checkReport(result.index);
@@ -307,13 +286,7 @@ async function build(config: SqliteSourceConfig, indexPath: string) {
       'Source validation failed; last valid generation retained',
       { diagnostics: report.diagnostics },
     );
-  const after = await inputs(config, indexPath, compiled.dependencies);
-  if (!sameInputs(before, after))
-    throw new SqliteIndexError(
-      SQLITE_ERROR.REFRESH_FAILED,
-      'Sources changed during refresh; last valid generation retained',
-    );
-  return { ...result, dependencies: compiled.dependencies, stamps: after };
+  return { ...result, dependencies: compiled.dependencies, stamps };
 }
 function publish(
   db: DatabaseSync,
@@ -321,48 +294,12 @@ function publish(
   schema: RuntimeSchemaIR,
   stamps: FileStamp[],
 ): { entityCount: number; edgeCount: number } {
-  const source = projectionSource(index, schema);
-  const graph = canonicalGraphView(source);
-  db.exec(
-    'DELETE FROM lore_entities; DELETE FROM lore_relations; DELETE FROM lore_edges; DELETE FROM lore_arcs; DELETE FROM lore_inputs;',
-  );
   db.prepare('INSERT OR REPLACE INTO lore_model(id,value) VALUES(1,?)').run(JSON.stringify(schema));
-  const entityInsert = db.prepare('INSERT INTO lore_entities VALUES(?,?,?,?,?,?)');
-  source.entities.forEach((entity, ordinal) => {
-    const { narrative, ...data } = entity;
-    const { body: _body, links: _links, ...artifact } = index.artifacts[entity.id]!;
-    entityInsert.run(
-      entity.id,
-      ordinal,
-      entity.kind,
-      JSON.stringify(data),
-      JSON.stringify(artifact),
-      narrative ?? null,
-    );
-  });
-  const relationInsert = db.prepare('INSERT INTO lore_relations VALUES(?,?,?)');
-  for (const relation of source.relations)
-    relationInsert.run(relation.from, relation.to, JSON.stringify(relation));
-  const edgeInsert = db.prepare('INSERT INTO lore_edges VALUES(?,?,?,?,?)');
-  let ordinal = 0;
-  for (const edge of graph.edges)
-    edgeInsert.run(edge.key, ordinal++, edge.from, edge.to, JSON.stringify(edge));
-  const arcInsert = db.prepare('INSERT INTO lore_arcs VALUES(?,?,?,?,?,?,?)');
-  for (const entity of source.entities) {
-    const arcs = [...(graph.arcsByCurrent.get(entity.id) ?? [])].sort(
-      (a, b) =>
-        a.to.localeCompare(b.to) ||
-        a.edge.relation.localeCompare(b.edge.relation) ||
-        a.edge.from.localeCompare(b.edge.from) ||
-        a.edge.to.localeCompare(b.edge.to),
-    );
-    arcs.forEach((arc, order) =>
-      arcInsert.run(entity.id, order, arc.edge.key, arc.from, arc.to, arc.relation, arc.mode),
-    );
-  }
+  const counts = publishCompact(db, index, schema);
+  db.exec('DELETE FROM lore_inputs');
   const inputInsert = db.prepare('INSERT INTO lore_inputs VALUES(?,?,?)');
   for (const stamp of stamps) inputInsert.run(stamp.path, stamp.size, stamp.mtimeMs);
-  return { entityCount: source.entities.length, edgeCount: graph.edges.length };
+  return counts;
 }
 
 const refreshing = new Map<string, Promise<SqliteRefreshResult>>();

@@ -15,6 +15,50 @@ import {
 } from './index.js';
 
 describe('filesystem projections', () => {
+  it('retains Markdown structure and source coordinates across plain text and linked fragments', () => {
+    const text = [
+      '---',
+      'id: sample',
+      'meta:',
+      '  label: Пример',
+      '---',
+      '# **Title**',
+      '',
+      'Plain *emphasis* and `code`.',
+      '',
+      '## Links',
+      '',
+      '- **[local](next.md)**',
+      '- [[target]]',
+      '',
+      '<a href="elsewhere.md">',
+      '',
+      '[inside](inside.md)',
+      '',
+      '</a>',
+      '',
+    ].join('\r\n');
+    const candidate = parseContents('/workspace/sample.md', text)[0]!;
+    expect(candidate.observedTitle).toBe('**Title**');
+    expect(candidate.observedDescription).toBe('Plain *emphasis* and `code`.');
+    expect(
+      candidate.sections.map(({ heading, blocks, lists }) => ({ heading, blocks, lists })),
+    ).toEqual([
+      { heading: '**Title**', blocks: ['Plain *emphasis* and `code`.'], lists: [] },
+      {
+        heading: 'Links',
+        blocks: ['[inside](inside.md)'],
+        lists: [['**[local](next.md)**', '[[target]]']],
+      },
+    ]);
+    expect(candidate.links).toEqual([
+      { syntax: 'markdown', target: 'next.md', label: 'local', span: { line: 12, column: 5 } },
+      { syntax: 'wiki', target: 'target', span: { line: 13, column: 3 } },
+      { syntax: 'markdown', target: 'inside.md', label: 'inside', span: { line: 17, column: 1 } },
+    ]);
+    expect(candidate.spans['meta.label']).toEqual({ line: 4, column: 10 });
+  });
+
   it.skipIf(process.platform === 'win32')('does not enter ignored directories', async () => {
     const root = await mkdtemp(join(tmpdir(), 'lore-ignored-directory-'));
     const ignored = join(root, 'dependencies');

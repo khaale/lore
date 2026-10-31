@@ -5,6 +5,12 @@ The SDK never changes source files. The JSON reader uses a saved index from
 `lore index <root>`; the SQLite reader can conditionally refresh its derived
 projection. Node 24 is required.
 
+Nested YAML/JSON entities declared with schema-level `lore:sources` use the same
+query/get/graph APIs. Index/check/watch and SQLite refresh execute mappings;
+saved-index readers consume published entities. Mapped fields must be declared
+to be SDK-selectable. Provenance retains original files and record pointers.
+See [source declarations](../skills/lore-modeling/references/declarative-sources.md).
+
 ```ts
 import { openFilesystemWorkspace } from '@khaale/lore';
 
@@ -123,6 +129,15 @@ is `/work/project/.artifact-index/index.sqlite`. SQLite stores the compiled mode
 entity properties, graph and narrative together. It uses Node's built-in SQLite;
 no database server or native dependency installation is needed.
 
+The current private SQLite format is version 2: properties/provenance are stored
+once, paths/types/predicates are shared, and integer graph edges/arcs are materialized
+in the publication transaction. Raw differences retain source-facing values for
+explore and empty-reference facets; external IDs and read results are unchanged.
+Earlier SQLite formats report `INDEX_REBUILD_REQUIRED`. Close their consumers,
+remove the disposable index database and its `-wal`/`-shm` sidecars, then initialize
+again with `lore index --format sqlite`. There is no automatic migration or dual
+reader. JSON indexes are unaffected.
+
 ```ts
 import { openSqliteWorkspace, refreshSqliteIndex } from '@khaale/lore';
 
@@ -166,7 +181,11 @@ entity writes. Checking still discovers eligible paths and compares size/mtime
 for sources, the model dependency closure and ignore file. Changed inputs trigger
 a full validated rebuild. Same-size edits that restore mtime are outside this
 freshness guarantee; source files themselves are not transactional. Refresh uses
-before/after baselines and rejects an observed mid-build change.
+a single discovery pass for a rebuild and records input size/mtime before reading.
+It publishes validated data read during that build without a post-build stability
+check. Edits made after that baseline are detected by a later source check;
+`maxAgeMs` still controls when the next check runs. A checked read does not prove
+that all authored files were read from one instant in time.
 
 A grouped reader pins one SQLite read transaction, including model, graph and
 explicitly requested narrative, while another process may publish a new generation.

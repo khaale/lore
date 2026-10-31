@@ -9,3 +9,6 @@ examples/**/.artifact-index/
 
 /dist/
 *.tgz
+
+# Local prototypes and research output are not product sources.
+/experiments/

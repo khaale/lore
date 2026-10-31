@@ -186,21 +186,24 @@ it('pins model, graph and narrative across publication by a separate process', a
   expect(after.graph.snapshot.generationId).toBe(updated.generationId);
 });
 
-it('rejects unsupported projections without modifying their metadata', async () => {
-  const f = await fixture();
-  const db = new DatabaseSync(f.indexPath);
-  const original = String(db.prepare('SELECT value FROM lore_meta').get().value);
-  const changed = JSON.stringify({ ...JSON.parse(original), version: 999 });
-  db.prepare('UPDATE lore_meta SET value=?').run(changed);
-  await expect(
-    openSqliteWorkspace({ indexPath: f.indexPath, freshness: { mode: 'indexed' } }),
-  ).rejects.toMatchObject({ code: 'INDEX_REBUILD_REQUIRED' });
-  await expect(refreshSqliteIndex({ indexPath: f.indexPath })).rejects.toMatchObject({
-    code: 'INDEX_REBUILD_REQUIRED',
-  });
-  expect(db.prepare('SELECT value FROM lore_meta').get().value).toBe(changed);
-  db.close();
-});
+it.each([1, 999])(
+  'rejects unsupported projection version %s without modifying its metadata',
+  async (version) => {
+    const f = await fixture();
+    const db = new DatabaseSync(f.indexPath);
+    const original = String(db.prepare('SELECT value FROM lore_meta').get().value);
+    const changed = JSON.stringify({ ...JSON.parse(original), version });
+    db.prepare('UPDATE lore_meta SET value=?').run(changed);
+    await expect(
+      openSqliteWorkspace({ indexPath: f.indexPath, freshness: { mode: 'indexed' } }),
+    ).rejects.toMatchObject({ code: 'INDEX_REBUILD_REQUIRED' });
+    await expect(refreshSqliteIndex({ indexPath: f.indexPath })).rejects.toMatchObject({
+      code: 'INDEX_REBUILD_REQUIRED',
+    });
+    expect(db.prepare('SELECT value FROM lore_meta').get().value).toBe(changed);
+    db.close();
+  },
+);
 
 it('watch republishes valid edits and repairs a missing external schema import', async () => {
   const f = await fixture();

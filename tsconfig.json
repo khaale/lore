@@ -11,6 +11,9 @@
       "path": "./packages/filesystem"
     },
     {
+      "path": "./packages/graph"
+    },
+    {
       "path": "./packages/sdk"
     },
     {

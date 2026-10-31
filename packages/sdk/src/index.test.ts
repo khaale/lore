@@ -5,8 +5,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildGraph } from '@khaale/lore-core';
 import { parseFile, publishIndex } from '@khaale/lore-filesystem';
 import { compileSchemaOrThrow } from '@khaale/lore-schema';
+import { initializeSqliteIndex } from './sqlite-index.js';
 import {
   openFilesystemWorkspace,
+  openSqliteWorkspace,
   PTC_ERROR_CODE,
   PTC_OUTCOME,
   PTC_STATUS,
@@ -53,7 +55,10 @@ enums:
     permissible_values: {accepted: Accepted, draft: Draft}
 `;
 
-async function makeFilesystemWorkspace(extraDocuments: readonly string[] = []): Promise<{
+async function makeFilesystemWorkspace(
+  extraDocuments: readonly string[] = [],
+  artificialProvenance = true,
+): Promise<{
   root: string;
   schemaPath: string;
   indexPath: string;
@@ -93,24 +98,25 @@ async function makeFilesystemWorkspace(extraDocuments: readonly string[] = []): 
   });
   const child = built.index.artifacts['child-1'];
   if (!child) throw new Error('fixture child artifact was not built');
-  child.provenance = {
-    source: child.provenance?.source ?? child.source,
-    physicalPath: child.provenance?.physicalPath ?? child.physical_path,
-    ...(child.provenance?.span === undefined ? {} : { span: child.provenance.span }),
-    narrative: {
-      source: 'a.yaml#narrative',
-      physicalPath: join(root, 'a.yaml'),
-      representation: 'narrative',
-    },
-    properties: {
-      ...(child.provenance?.properties ?? {}),
-      title: {
-        source: 'a.yaml#title',
+  if (artificialProvenance)
+    child.provenance = {
+      source: child.provenance?.source ?? child.source,
+      physicalPath: child.provenance?.physicalPath ?? child.physical_path,
+      ...(child.provenance?.span === undefined ? {} : { span: child.provenance.span }),
+      narrative: {
+        source: 'a.yaml#narrative',
         physicalPath: join(root, 'a.yaml'),
-        representation: 'frontmatter',
+        representation: 'narrative',
       },
-    },
-  };
+      properties: {
+        ...(child.provenance?.properties ?? {}),
+        title: {
+          source: 'a.yaml#title',
+          physicalPath: join(root, 'a.yaml'),
+          representation: 'frontmatter',
+        },
+      },
+    };
   await publishIndex(indexPath, built.index);
   return { root, schemaPath, indexPath };
 }
@@ -627,16 +633,25 @@ related: []
   });
 
   it('reads deterministic graph context with filters, inverse aliases, and independent coverage', async () => {
-    const fixture = await makeFilesystemWorkspace([
-      'id: child-2\nkind: Child\nstatus: accepted\ntitle: Middle\ndepends_on: [child-1, child-3]\nconnects_to: [child-3]\n',
-      'id: child-3\nkind: Child\nstatus: accepted\ntitle: Shared\ndepends_on: [child-4]\n',
-      'id: child-4\nkind: Child\nstatus: accepted\ntitle: External\n',
-      'id: child-5\nkind: Child\nstatus: accepted\ntitle: Isolated\n',
-    ]);
+    const fixture = await makeFilesystemWorkspace(
+      [
+        'id: child-2\nkind: Child\nstatus: accepted\ntitle: Middle\ndepends_on: [child-1, child-3]\nconnects_to: [child-3]\n',
+        'id: child-3\nkind: Child\nstatus: accepted\ntitle: Shared\ndepends_on: [child-4]\n',
+        'id: child-4\nkind: Child\nstatus: accepted\ntitle: External\n',
+        'id: child-5\nkind: Child\nstatus: accepted\ntitle: Isolated\n',
+      ],
+      false,
+    );
     const filesystem = await openFilesystemWorkspace(fixture);
+    const sqlitePath = join(fixture.root, '.artifact-index/graph.sqlite');
+    await initializeSqliteIndex({ root: fixture.root, indexPath: sqlitePath });
+    const sqlite = await openSqliteWorkspace({
+      indexPath: sqlitePath,
+      freshness: { mode: 'indexed' },
+    });
 
     const results = await Promise.all(
-      [filesystem].map((workspace) =>
+      [filesystem, sqlite].map((workspace) =>
         workspace.readSnapshot(async (read) => {
           const neighbors = await read.graph.neighbors(['child-1'], {
             direction: 'in',
@@ -676,7 +691,12 @@ related: []
           return { neighbors, neighborhood, subgraph, boundary, truncated, empty };
         }),
       ),
-    );
+    ).finally(() => sqlite.close());
+    const stripSnapshots = (result: Record<string, any>) =>
+      Object.fromEntries(
+        Object.entries(result).map(([key, { snapshot: _snapshot, ...value }]) => [key, value]),
+      );
+    expect(stripSnapshots(results[1]!)).toEqual(stripSnapshots(results[0]!));
     const filesystemResults = results[0]!;
     expect(filesystemResults.neighbors.nodes.map((node) => node.id)).toEqual(['child-2', 'leaf-1']);
     expect(filesystemResults.neighbors.edges).toEqual(

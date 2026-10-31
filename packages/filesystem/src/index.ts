@@ -4,6 +4,8 @@ import { parseAllDocuments, parseDocument } from 'yaml';
 import { parse } from 'csv-parse/sync';
 import { Lexer, type Token } from 'marked';
 import ignore from 'ignore';
+import type { CompiledSchema } from '@khaale/lore-schema';
+import { extractSource, SourceExtractionError } from './source-extraction.js';
 import {
   type Candidate,
   type MarkdownSection,
@@ -55,6 +57,22 @@ const scalar = (v: unknown): unknown => {
 };
 const lineSpan = (line: number, column = 1): SourceSpan => ({ line, column });
 const tableNamePattern = /^[A-Za-z][A-Za-z0-9_-]*$/;
+
+function sourceLocator(text: string, lineOffset = 0): (offset: number) => SourceSpan {
+  const starts = [0];
+  for (let index = text.indexOf('\n'); index >= 0; index = text.indexOf('\n', index + 1))
+    starts.push(index + 1);
+  return (offset) => {
+    let low = 0;
+    let high = starts.length;
+    while (low + 1 < high) {
+      const middle = (low + high) >>> 1;
+      if (starts[middle]! <= offset) low = middle;
+      else high = middle;
+    }
+    return lineSpan(low + 1 + lineOffset, offset - starts[low]! + 1);
+  };
+}
 
 function decodeTableCell(value: string): string {
   let decoded = '';
@@ -230,10 +248,7 @@ function sourceSpans(text: string, keys: readonly string[]): Record<string, Sour
 }
 function nodeSpans(document: unknown, text: string, lineOffset = 0): Record<string, SourceSpan> {
   const spans: Record<string, SourceSpan> = {};
-  const lineAt = (offset: number): SourceSpan => {
-    const before = text.slice(0, offset);
-    return lineSpan(before.split(/\r?\n/).length + lineOffset, offset - before.lastIndexOf('\n'));
-  };
+  const lineAt = sourceLocator(text, lineOffset);
   const visit = (node: unknown, prefix = ''): void => {
     if (!node || typeof node !== 'object') return;
     const value = node as {
@@ -307,12 +322,7 @@ function markdown(path: string, text: string): Candidate {
   const links: SurfaceLink[] = [];
   const sections: MarkdownSection[] = [];
   let section: MarkdownSection | undefined;
-  const lineAt = (offset: number): SourceSpan => {
-    const prefix = body.slice(0, offset);
-    const line = prefix.split('\n').length + start;
-    const column = offset - prefix.lastIndexOf('\n');
-    return { line, column };
-  };
+  const lineAt = sourceLocator(body, start);
   const addWikiLinks = (value: string, offset: number, targetSection?: MarkdownSection): void => {
     for (const match of value.matchAll(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]/g)) {
       const link: SurfaceLink = {
@@ -361,7 +371,13 @@ function markdown(path: string, text: string): Candidate {
   let bodyTitle: string | undefined;
   let bodyDescription: string | undefined;
   let descriptionSpan: SourceSpan | undefined;
-  for (const token of Lexer.lex(body, { gfm: false })) {
+  const lexer = new Lexer({ gfm: false });
+  const inlineTokens = lexer.inlineTokens.bind(lexer);
+  // Lore consumes inline tokens only for links. HTML still needs tokenization
+  // because its open/close tags affect Marked's link state across fragments.
+  lexer.inlineTokens = (text, tokens = []) =>
+    text.includes('[') || text.includes('<') ? inlineTokens(text, tokens) : tokens;
+  for (const token of lexer.lex(body)) {
     const raw = token.raw ?? '';
     const found = body.indexOf(raw, cursor);
     const at = found < 0 ? cursor : found;
@@ -947,6 +963,113 @@ export function parseContents(path: string, text: string): Candidate[] {
 export async function parseFile(path: string): Promise<Candidate[]> {
   return parseContents(path, await readFile(path, 'utf8'));
 }
+function sourcePattern(pattern: string): RegExp {
+  let expression = '^';
+  for (let i = 0; i < pattern.length; i++) {
+    const part = pattern[i]!;
+    if (part === '*' && pattern[i + 1] === '*') {
+      i++;
+      if (pattern[i + 1] === '/') {
+        expression += '(?:.*/)?';
+        i++;
+      } else expression += '.*';
+    } else if (part === '*') expression += '[^/]*';
+    else if (part === '?') expression += '[^/]';
+    else expression += part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`${expression}$`);
+}
+/** Shared CLI and updater ingestion. A declared source exclusively owns each
+ * matched file; errors are returned for the existing publication gate. */
+export async function readSources(
+  options: ScanOptions,
+  compiled: CompiledSchema,
+  discoveredFiles?: readonly string[],
+): Promise<{ candidates: Candidate[]; diagnostics: import('@khaale/lore-core').Diagnostic[] }> {
+  const files =
+    discoveredFiles ?? (await discover({ ...options, dependencies: compiled.dependencies }));
+  const candidates: Candidate[] = [],
+    diagnostics: import('@khaale/lore-core').Diagnostic[] = [];
+  const plans = (compiled.ir.sources ?? []).map((plan) => ({
+    plan,
+    patterns: plan.files.map(sourcePattern),
+  }));
+  const root = resolve(options.root);
+  const relativeFiles = files.map((file) => relative(root, file).split('\\').join('/'));
+  for (const { plan } of plans)
+    for (const literal of plan.files.filter((pattern) => !/[?*]/.test(pattern))) {
+      if (!relativeFiles.includes(literal))
+        diagnostics.push({
+          severity: 'error',
+          code: 'SOURCE_INPUT',
+          source: resolve(root, literal),
+          message: `${plan.name}: literal source input is missing or excluded`,
+        });
+    }
+  const readBatchSize = 16;
+  for (let offset = 0; offset < files.length; offset += readBatchSize) {
+    const batch = files.slice(offset, offset + readBatchSize).map((path, index) => ({
+      path,
+      rel: relativeFiles[offset + index]!,
+      owners: plans.filter(({ patterns }) =>
+        patterns.some((pattern) => pattern.test(relativeFiles[offset + index]!)),
+      ),
+    }));
+    const contents = await Promise.allSettled(
+      batch.map(({ path, owners }) =>
+        owners.length > 1 ? Promise.resolve('') : readFile(path, 'utf8'),
+      ),
+    );
+    // Consume in discovery order even when reads complete out of order.
+    for (const [index, { path, rel, owners }] of batch.entries()) {
+      if (owners.length > 1) {
+        diagnostics.push({
+          severity: 'error',
+          code: 'SOURCE_OWNERSHIP',
+          source: path,
+          message: `ambiguous source ownership: ${owners.map(({ plan }) => plan.name).join(', ')}`,
+        });
+        continue;
+      }
+      try {
+        const content = contents[index]!;
+        if (content.status === 'rejected') throw content.reason;
+        const text = content.value;
+        const owner = owners[0]?.plan;
+        if (!owner) {
+          candidates.push(...parseContents(path, text));
+          continue;
+        }
+        let document: unknown;
+        if (extname(path).toLowerCase() === '.json') document = JSON.parse(text);
+        else if (['.yaml', '.yml'].includes(extname(path).toLowerCase())) {
+          const docs = parseAllDocuments(text);
+          if (docs.length !== 1 || docs[0]!.errors.length)
+            throw new Error('declared YAML source must contain exactly one valid document');
+          document = docs[0]!.toJS();
+        } else throw new Error('declared sources support YAML and JSON only');
+        const namespace = owner.namespace === undefined ? [owner.name, rel] : [owner.namespace];
+        candidates.push(...extractSource(document, owner, namespace, path));
+      } catch (error) {
+        diagnostics.push({
+          severity: 'error',
+          code:
+            error instanceof SourceExtractionError
+              ? error.code
+              : owners.length
+                ? 'SOURCE_EXTRACTION'
+                : 'PARSE',
+          source: path,
+          message:
+            owners[0] && !(error instanceof SourceExtractionError)
+              ? `${owners[0].plan.name}/<document> at #: ${String(error)}`
+              : String(error),
+        });
+      }
+    }
+  }
+  return { candidates, diagnostics };
+}
 export type ScanOptions = {
   root: string;
   schemaPath?: string;
@@ -1067,8 +1190,11 @@ export async function publishIndex(path: string, index: unknown): Promise<void> 
   }
 }
 export type FileStamp = { path: string; size: number; mtimeMs: number };
-export async function snapshot(options: ScanOptions): Promise<FileStamp[]> {
-  const files = new Set(await discover(options));
+export async function snapshot(
+  options: ScanOptions,
+  discoveredFiles?: readonly string[],
+): Promise<FileStamp[]> {
+  const files = new Set(discoveredFiles ?? (await discover(options)));
   for (const path of [options.schemaPath, options.ignorePath, ...(options.dependencies ?? [])]) {
     if (path && resolve(path) !== resolve(options.outputPath ?? '')) files.add(path);
   }

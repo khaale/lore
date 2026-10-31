@@ -14,6 +14,8 @@ import {
 } from './index.js';
 import { initializeSqliteIndex } from './sqlite-index.js';
 import { ReadSnapshotImpl, projectionSource } from './reader.js';
+import { GraphAnalysisCache, ANALYSIS_ERROR } from '@khaale/lore-graph';
+import { jsonAnalysisInput, sqliteAnalysisInput } from './graph-analysis-source.js';
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -84,6 +86,87 @@ const withoutSnapshot = <T extends { snapshot: unknown }>(value: T) => {
 };
 
 describe('SQLite projection and ordinary SDK', () => {
+  it('loads matching analytical topology from JSON and pinned SQLite without property/narrative hydration', async () => {
+    const f = await fixture();
+    const source = projectionSource(f.built.index, f.built.schema);
+    for (const entity of source.entities)
+      Object.defineProperty(entity, 'properties', {
+        get() {
+          throw new Error('No payload hydration');
+        },
+      });
+    const cache = new GraphAnalysisCache(),
+      db = new DatabaseSync(f.indexPath, { readOnly: true });
+    db.exec('BEGIN');
+    const prepare = vi.spyOn(db, 'prepare');
+    try {
+      const json = jsonAnalysisInput(source, () => {}),
+        sql = sqliteAnalysisInput(db, () => {});
+      const expected = await cache.read(json, {}, async (read) => ({
+        rank: await read.rank({ balance: 'type' }),
+        groups: await read.communities({ balance: 'type' }),
+        stats: read.stats,
+      }));
+      const actual = await cache.read(sql, {}, async (read) => ({
+        rank: await read.rank({ balance: 'type' }),
+        groups: await read.communities({ balance: 'type' }),
+        stats: read.stats,
+      }));
+      expect(actual).toEqual(expected);
+      expect(
+        prepare.mock.calls
+          .map((c) => c[0])
+          .filter((q) => !/\bLIMIT 0\b/i.test(q))
+          .some((q) =>
+            /SELECT \* FROM lore_entities|SELECT .*\bproperties\b|SELECT .*\bnarrative\b/i.test(q),
+          ),
+      ).toBe(false);
+      db.exec('ROLLBACK');
+      await expect(cache.read(sql, {}, () => {})).rejects.toMatchObject({
+        code: ANALYSIS_ERROR.CLOSED,
+      });
+    } finally {
+      await cache.close();
+      db.close();
+    }
+  });
+
+  it('keeps an analytical read pinned when publication replaces the generation', async () => {
+    const f = await fixture(),
+      cache = new GraphAnalysisCache(),
+      db = new DatabaseSync(f.indexPath, { readOnly: true });
+    db.exec('BEGIN');
+    try {
+      const original = sqliteAnalysisInput(db, () => {});
+      await cache.read(original, {}, async (old) => {
+        const before = await old.rank();
+        expect(old.stats.edges).toBe(2);
+        await writeFile(
+          join(f.root, 'b.yaml'),
+          'id: b\nkind: Special\ntitle: Beta\nrelated: [c, a]\n',
+        );
+        expect((await refreshSqliteIndex({ indexPath: f.indexPath })).outcome).toBe('updated');
+        const newer = new DatabaseSync(f.indexPath, { readOnly: true });
+        newer.exec('BEGIN');
+        try {
+          const next = sqliteAnalysisInput(newer, () => {});
+          expect(next.generation).not.toBe(original.generation);
+          await cache.read(next, {}, async (current) => {
+            expect(current.stats.edges).toBe(3);
+            expect(await current.rank()).not.toEqual(before);
+          });
+          expect(await old.rank()).toEqual(before);
+          expect(old.stats.edges).toBe(2);
+        } finally {
+          newer.close();
+        }
+      });
+    } finally {
+      await cache.close();
+      db.close();
+    }
+  });
+
   it('shares lazy JSON graph preparation across readers without making metadata/query pay for it', async () => {
     const f = await fixture();
     const source = projectionSource(f.built.index, f.built.schema);
@@ -213,7 +296,7 @@ describe('SQLite projection and ordinary SDK', () => {
     db.exec(
       'CREATE TABLE changed_rows(id TEXT); CREATE TRIGGER entity_write AFTER INSERT ON lore_entities BEGIN INSERT INTO changed_rows VALUES(new.id); END;',
     );
-    const parse = vi.spyOn(filesystem, 'parseFile');
+    const parse = vi.spyOn(filesystem, 'readSources');
     try {
       const [first, second] = await Promise.all([
         refreshSqliteIndex({ indexPath: f.indexPath }),
@@ -344,7 +427,7 @@ describe('SQLite projection and ordinary SDK', () => {
       code: 'REFRESH_FAILED',
     });
   });
-  it('rejects mid-build changes and keeps the previous generation', async () => {
+  it('publishes files read during a build and picks up concurrent edits on the next refresh', async () => {
     const f = await fixture();
     const sql = await openSqliteWorkspace({
       indexPath: f.indexPath,
@@ -352,24 +435,39 @@ describe('SQLite projection and ordinary SDK', () => {
     });
     const old = await sql.entities.get('a', { include: ['narrative'] });
     await writeFile(join(f.root, 'a.md'), document('Candidate', 'Candidate narrative'));
-    const original = filesystem.parseFile;
+    const original = filesystem.readSources;
     let changed = false;
-    vi.spyOn(filesystem, 'parseFile').mockImplementation(async (path) => {
-      const result = await original(path);
+    vi.spyOn(filesystem, 'readSources').mockImplementation(async (...args) => {
+      const result = await original(...args);
       if (!changed) {
         changed = true;
         await writeFile(join(f.root, 'a.md'), document('Concurrent edit', 'Different body'));
       }
       return result;
     });
-    await expect(refreshSqliteIndex({ indexPath: f.indexPath })).rejects.toThrow(
-      'Sources changed during refresh',
-    );
-    expect(await sql.entities.get('a', { include: ['narrative'] })).toEqual(old);
+    expect((await refreshSqliteIndex({ indexPath: f.indexPath })).outcome).toBe('updated');
+    const published = await sql.entities.get('a', { include: ['narrative'] });
+    expect(published.snapshot.generationId).not.toBe(old.snapshot.generationId);
+    expect(published.item.properties.title).toBe('Candidate');
+    expect(published.item.narrative).toContain('Candidate narrative');
     vi.restoreAllMocks();
     await refreshSqliteIndex({ indexPath: f.indexPath });
     expect((await sql.entities.get('a')).item.properties.title).toBe('Concurrent edit');
     await sql.close();
+  });
+
+  it('discovers build inputs once and reuses the list for stamps and source extraction', async () => {
+    const f = await fixture();
+    const discover = vi.spyOn(filesystem, 'discover');
+    const stamps = vi.spyOn(filesystem, 'snapshot');
+    const sources = vi.spyOn(filesystem, 'readSources');
+    await initializeSqliteIndex({ root: f.root, indexPath: f.indexPath });
+    expect(discover).toHaveBeenCalledTimes(1);
+    expect(stamps).toHaveBeenCalledTimes(1);
+    expect(sources).toHaveBeenCalledTimes(1);
+    const files = await discover.mock.results[0]!.value;
+    expect(stamps.mock.calls[0]![1]).toBe(files);
+    expect(sources.mock.calls[0]![2]).toBe(files);
   });
 
   it('waits for active callbacks when closing and performs one grouped source check', async () => {

@@ -88,6 +88,18 @@ importers:
         specifier: workspace:*
         version: link:../schema
 
+  packages/graph:
+    dependencies:
+      '@graphty/algorithms':
+        specifier: 3.4.14
+        version: 3.4.14(@graphty/graph-format@1.4.7)
+      '@graphty/graph-format':
+        specifier: 1.4.7
+        version: 1.4.7
+      '@khaale/lore-schema':
+        specifier: workspace:*
+        version: link:../schema
+
   packages/schema:
     dependencies:
       yaml:
@@ -102,6 +114,9 @@ importers:
       '@khaale/lore-filesystem':
         specifier: workspace:*
         version: link:../filesystem
+      '@khaale/lore-graph':
+        specifier: workspace:*
+        version: link:../graph
       '@khaale/lore-schema':
         specifier: workspace:*
         version: link:../schema
@@ -368,6 +383,16 @@ packages:
   '@eslint/plugin-kit@0.4.1':
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+  '@graphty/algorithms@3.4.14':
+    resolution: {integrity: sha512-s4Yj7QIviJYJmnGdmDgLflsDMWH/zGbuzy/zxriWdCUd0vA06QyQfDD309M2HB4keP5fjq8hGakpbCLrkzFQgw==}
+    engines: {node: '>=18.19.0'}
+    peerDependencies:
+      '@graphty/graph-format': ^1.0.0
+
+  '@graphty/graph-format@1.4.7':
+    resolution: {integrity: sha512-402WEa9ExWdqYmJMxTkU31jMRxldyCHvE2NWNZaiwi8/DYGxH52gB2+8Ue5uWgXPr8xL0BuyLpFBWJ6Gh63NZQ==}
+    engines: {node: '>=18.19.0'}
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -1730,6 +1755,12 @@ snapshots:
     dependencies:
       '@eslint/core': 0.17.0
       levn: 0.4.1
+
+  '@graphty/algorithms@3.4.14(@graphty/graph-format@1.4.7)':
+    dependencies:
+      '@graphty/graph-format': 1.4.7
+
+  '@graphty/graph-format@1.4.7': {}
 
   '@humanfs/core@0.19.2':
     dependencies:

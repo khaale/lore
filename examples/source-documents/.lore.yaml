@@ -1,0 +1,415 @@
+id: https://example.org/lore/source-projection-poc
+name: source-projection-poc
+classes:
+  Entity:
+    abstract: true
+    attributes:
+      id:
+        identifier: true
+      type:
+        designates_type: true
+        required: true
+      name:
+        required: true
+  Api:
+    is_a: Entity
+    extra_slots:
+      allowed: true
+    attributes:
+      version: {}
+      description: {}
+      servers:
+        range: Document
+        inlined: true
+        multivalued: true
+  ApiOperation:
+    is_a: Entity
+    extra_slots:
+      allowed: true
+    attributes:
+      method: {}
+      path: {}
+      operation_id: {}
+      summary: {}
+      description: {}
+      definition:
+        range: Document
+        inlined: true
+      path_parameters:
+        range: Document
+        inlined: true
+        multivalued: true
+      api:
+        range: Api
+        required: true
+      request_schemas:
+        range: ApiSchema
+        multivalued: true
+      response_schemas:
+        range: ApiSchema
+        multivalued: true
+      parameter_schemas:
+        range: ApiSchema
+        multivalued: true
+  ApiSchema:
+    is_a: Entity
+    extra_slots:
+      allowed: true
+    attributes:
+      description: {}
+      definition:
+        range: Document
+        inlined: true
+      api:
+        range: Api
+        required: true
+      references:
+        range: ApiSchema
+        multivalued: true
+  Database:
+    is_a: Entity
+    extra_slots:
+      allowed: true
+    attributes:
+      definition:
+        range: Document
+        inlined: true
+  DatabaseObject:
+    is_a: Entity
+    extra_slots:
+      allowed: true
+    attributes:
+      description: {}
+      definition:
+        range: Document
+        inlined: true
+      database:
+        range: Database
+        required: true
+      foreign_keys:
+        range: ForeignKey
+        multivalued: true
+        inlined: true
+  ForeignKey:
+    extra_slots:
+      allowed: true
+    attributes:
+      name: {}
+      columns:
+        range: Document
+        inlined: true
+        multivalued: true
+      referenced_columns:
+        range: Document
+        inlined: true
+        multivalued: true
+      target:
+        range: DatabaseObject
+        required: true
+  Document:
+    extra_slots:
+      allowed: true
+annotations:
+  lore:sources:
+    openapi:
+      entities:
+        - name: api
+          class: Api
+          at: root
+          key:
+            - literal: api
+          fields:
+            name:
+              get:
+                from: root
+                path:
+                  - info
+                  - title
+            version:
+              get:
+                from: root
+                path:
+                  - info
+                  - version
+            description:
+              get:
+                from: root
+                path:
+                  - info
+                  - description
+            servers:
+              get:
+                from: root
+                path:
+                  - servers
+        - name: schema
+          class: ApiSchema
+          select:
+            - from: root
+              path:
+                - components
+                - schemas
+              each: entries
+              as: dto
+          at: dto
+          key:
+            - key: dto
+          fields:
+            name:
+              key: dto
+            description:
+              get:
+                from: dto
+                path:
+                  - description
+            api:
+              ref:
+                rule: api
+                key:
+                  - literal: api
+            definition:
+              get:
+                from: dto
+            references:
+              pointer_refs:
+                from: dto
+                member: $ref
+                rule: schema
+                descend: &a1
+                  - - properties
+                    - '*'
+                  - - items
+                  - - additionalProperties
+                  - - allOf
+                    - '*'
+                  - - oneOf
+                    - '*'
+                  - - anyOf
+                    - '*'
+                  - - not
+                  - - prefixItems
+                    - '*'
+                  - - patternProperties
+                    - '*'
+                  - - dependentSchemas
+                    - '*'
+                  - - contains
+                  - - if
+                  - - then
+                  - - else
+                  - - unevaluatedItems
+                  - - unevaluatedProperties
+        - name: operation
+          class: ApiOperation
+          select:
+            - from: root
+              path:
+                - paths
+              each: entries
+              as: route
+            - from: route
+              each: entries
+              as: operation
+              keys:
+                - get
+                - put
+                - post
+                - delete
+                - options
+                - head
+                - patch
+                - trace
+          at: operation
+          key:
+            - key: route
+            - key: operation
+          fields:
+            name:
+              key: route
+            method:
+              key: operation
+            path:
+              key: route
+            operation_id:
+              get:
+                from: operation
+                path:
+                  - operationId
+            summary:
+              get:
+                from: operation
+                path:
+                  - summary
+            description:
+              get:
+                from: operation
+                path:
+                  - description
+            api:
+              ref:
+                rule: api
+                key:
+                  - literal: api
+            definition:
+              get:
+                from: operation
+            path_parameters:
+              get:
+                from: route
+                path:
+                  - parameters
+            request_schemas:
+              pointer_refs:
+                select:
+                  - from: operation
+                    path:
+                      - requestBody
+                      - content
+                    each: entries
+                    as: media
+                from: media
+                path:
+                  - schema
+                member: $ref
+                rule: schema
+                descend: *a1
+            response_schemas:
+              pointer_refs:
+                select:
+                  - from: operation
+                    path:
+                      - responses
+                    each: entries
+                    as: response
+                  - from: response
+                    path:
+                      - content
+                    each: entries
+                    as: media
+                from: media
+                path:
+                  - schema
+                member: $ref
+                rule: schema
+                descend: *a1
+            parameter_schemas:
+              pointer_refs:
+                select:
+                  - from: operation
+                    path:
+                      - parameters
+                    each: items
+                    as: parameter
+                from: parameter
+                path:
+                  - schema
+                member: $ref
+                rule: schema
+                descend: *a1
+      files:
+        - api/*.yaml
+        - api/*.json
+    database:
+      entities:
+        - name: database
+          class: Database
+          at: root
+          key:
+            - get:
+                from: root
+                path:
+                  - database
+                  - entity_id
+          fields:
+            name:
+              get:
+                from: root
+                path:
+                  - database
+                  - logical_name
+            definition:
+              get:
+                from: root
+                path:
+                  - database
+        - name: object
+          class: DatabaseObject
+          select:
+            - from: root
+              path:
+                - objects
+              each: items
+              as: table
+          at: table
+          key:
+            - get:
+                from: table
+                path:
+                  - namespace
+            - get:
+                from: table
+                path:
+                  - name
+          fields:
+            name:
+              get:
+                from: table
+                path:
+                  - qualified_name
+            description:
+              get:
+                from: table
+                path:
+                  - comment
+            database:
+              ref:
+                rule: database
+                key:
+                  - get:
+                      from: root
+                      path:
+                        - database
+                        - entity_id
+            definition:
+              get:
+                from: table
+            foreign_keys:
+              collect:
+                select:
+                  - from: table
+                    path:
+                      - postgresql
+                      - foreign_keys
+                    each: items
+                    as: fk
+                value:
+                  object:
+                    name:
+                      get:
+                        from: fk
+                        path:
+                          - name
+                    columns:
+                      get:
+                        from: fk
+                        path:
+                          - columns
+                    referenced_columns:
+                      get:
+                        from: fk
+                        path:
+                          - referenced_columns
+                    target:
+                      ref:
+                        rule: object
+                        key:
+                          - get:
+                              from: fk
+                              path:
+                                - referenced_schema
+                          - get:
+                              from: fk
+                              path:
+                                - referenced_table
+      files:
+        - databases/*.json

@@ -31,6 +31,10 @@ one model file: `.lore.yaml` (recommended) or `model.yaml`. If both exist, selec
 one explicitly with `--schema` in the CLI or `schemaPath` in the SDK.
 Markdown frontmatter, declared sections, heading identities,
 companion manifests and declared tables let you add structure to existing documents.
+Schema-level `lore:sources` declarations extract entities from nested YAML/JSON,
+such as API operations, DTOs and database tables. See the
+[working example](examples/source-documents/.lore.yaml) and
+[declaration reference](skills/lore-modeling/references/declarative-sources.md).
 
 Source files stay authoritative. Lore writes only a derived JSON or SQLite index, so the
 knowledge remains local, versionable and editable with your existing tools.
@@ -194,6 +198,9 @@ Group reads with `readSnapshot` and release the workspace with `close()`.
 Unchanged refresh checks size/mtime without rebuilding; changed inputs rebuild
 and publish atomically. Failed validation retains the last valid generation.
 SQLite supports ordinary bounded SDK reads; PTC remains on the JSON workspace.
+Its compact private format uses shared dictionaries and integer graph keys.
+Older SQLite indexes require closing consumers and explicitly removing/rebuilding
+the derived database; source files are not migrated.
 See [SQLite policies and examples](docs/sdk.md#persistent-sqlite-workspace).
 
 ## Development
@@ -202,6 +209,8 @@ See [SQLite policies and examples](docs/sdk.md#persistent-sqlite-workspace).
 pnpm check
 pnpm test:cli
 ```
+
+For storage/performance work, use the seeded [SQLite benchmark corpus and baseline](scripts/benchmarks/README.md).
 
 ## Agent skills
 

@@ -9,6 +9,9 @@ Lore reads authored files; the domain vocabulary belongs to the project's
 `.lore.yaml` (or `model.yaml`). Work directly on those files using normal editing
 tools. If both model names exist, select the schema explicitly rather than
 assuming one takes precedence.
+For nested YAML/JSON documents such as OpenAPI or database catalogs, read
+[declarative sources](references/declarative-sources.md) and declare `lore:sources`
+alongside user-defined classes.
 The JSON index is generated and is never the place to author or repair knowledge.
 
 ## Start from the project's vocabulary

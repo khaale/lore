@@ -5,6 +5,11 @@ knowledge. A schema that works in another LinkML tool is not automatically a
 supported Lore schema. This reference distinguishes executable semantics from
 accepted metadata and unsupported constructs.
 
+Schema-only `lore:sources` is an executable input extension for nested local
+YAML/JSON. Its declaration language, composition and limits are documented in
+[declarative sources](declarative-sources.md); it does not add LinkML derivation,
+output generation or arbitrary schema-code execution.
+
 Use `.lore.yaml` or `model.yaml` as the root model. If both exist, select one
 explicitly. A custom filename also works through CLI `--schema` or SDK
 `schemaPath`. The minimal complete model is in [model patterns](model-patterns.md).
@@ -197,15 +202,16 @@ complete LinkML toolchain.
 
 ## Lore annotations
 
-| Annotation                | Purpose                                                                                |
-| ------------------------- | -------------------------------------------------------------------------------------- |
-| `lore:explore_roles`      | Selects identity, title, summary, card or hidden presentation roles.                   |
-| `lore:explore_relation`   | Gives a relation a hierarchy, dependency, reference or context role.                   |
-| `lore:explore_label`      | Names the relation in exploration output.                                              |
-| `lore:explore_order`      | Sets an integer presentation order.                                                    |
-| `lore:explore_views`      | Selects overview, card, tree, neighborhood and impact views.                           |
-| `lore:markdown_selectors` | Maps exact Markdown headings to slot values.                                           |
-| `lore:heading_identity`   | Declares schema-level heading identity rules with named `id` and `title` regex groups. |
+| Annotation                | Purpose                                                                                                                     |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `lore:explore_roles`      | Selects identity, title, summary, card or hidden presentation roles.                                                        |
+| `lore:explore_relation`   | Gives a relation a hierarchy, dependency, reference or context role.                                                        |
+| `lore:explore_label`      | Names the relation in exploration output.                                                                                   |
+| `lore:explore_order`      | Sets an integer presentation order.                                                                                         |
+| `lore:explore_views`      | Selects overview, card, tree, neighborhood and impact views.                                                                |
+| `lore:markdown_selectors` | Maps exact Markdown headings to slot values.                                                                                |
+| `lore:heading_identity`   | Declares schema-level heading identity rules with named `id` and `title` regex groups.                                      |
+| `lore:sources`            | Declares schema-level input extraction rules for nested local YAML/JSON; see [declarative sources](declarative-sources.md). |
 
 These are Lore-specific annotations, not portable LinkML behavior. Their concrete
 authoring forms are described in [file formats](file-formats.md#structured-markdown)

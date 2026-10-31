@@ -1,0 +1,32 @@
+{
+  "format": "sa-documentation.database-schema",
+  "version": 1,
+  "database": { "entity_id": "database_orders", "logical_name": "orders", "kind": "postgresql" },
+  "objects": [
+    {
+      "kind": "table",
+      "namespace": "public",
+      "name": "заказ",
+      "qualified_name": "public.заказ",
+      "columns": [{ "name": "id", "data_type": "uuid", "nullable": false }],
+      "postgresql": {
+        "foreign_keys": [
+          {
+            "name": "parent_fk",
+            "columns": [{ "name": "parent_id", "ordinal": 1 }],
+            "referenced_schema": "public",
+            "referenced_table": "заказ",
+            "referenced_columns": [{ "name": "id", "ordinal": 1 }]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "view",
+      "namespace": "public",
+      "name": "active_orders",
+      "qualified_name": "public.active_orders",
+      "columns": [{ "name": "id", "data_type": "uuid", "nullable": false }]
+    }
+  ]
+}

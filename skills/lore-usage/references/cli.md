@@ -3,6 +3,10 @@
 These commands assume an available `lore` executable and a `knowledge/` root.
 Substitute actual paths, IDs, classes and fields from the target schema.
 
+Models with `lore:sources` extract nested YAML/JSON entities during the same
+check/index/watch commands; no adapter command is required. Source files stay
+read-only. Use the packaged `examples/source-documents` model as an example.
+
 ## Current-file reads
 
 ```sh
@@ -85,3 +89,8 @@ SQLite stores narrative with model/data/graph in one generation. Use the ordinar
 SQLite SDK to read it; existing `list`, `refs` and JSON-index exploration still use
 JSON. Watch is optional, and independent consumers coordinate refresh through
 SQLite ownership. Authored files remain externally owned.
+
+Private SQLite format 2 uses compact shared dictionaries and materialized integer
+edges/arcs. On `INDEX_REBUILD_REQUIRED` for an older format, close consumers,
+remove the disposable database and `-wal`/`-shm` sidecars, then initialize again.
+Do not edit or migrate authored records to repair a derived-format mismatch.

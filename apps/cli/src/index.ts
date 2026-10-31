@@ -6,8 +6,7 @@ import {
 } from '@khaale/lore-sdk/sqlite-index';
 import { compileSchema } from '@khaale/lore-schema';
 import {
-  discover,
-  parseFile,
+  readSources,
   publishIndex,
   readIndex,
   PollWatcher,
@@ -345,22 +344,16 @@ async function build(a: Args) {
     error.diagnostics = compiled.diagnostics;
     throw error;
   }
-  const files = await discover({
-    root: a.root,
-    schemaPath: a.schema,
-    ignorePath: a.ignore,
-    outputPath: a.index,
-    dependencies: compiled.value.dependencies,
-  });
-  const cs = [];
-  const parseErrors: Diagnostic[] = [];
-  for (const f of files) {
-    try {
-      cs.push(...(await parseFile(f)));
-    } catch (e) {
-      parseErrors.push({ severity: 'error', code: 'PARSE', message: String(e), source: f });
-    }
-  }
+  const { candidates: cs, diagnostics: parseErrors } = await readSources(
+    {
+      root: a.root,
+      schemaPath: a.schema,
+      ignorePath: a.ignore,
+      outputPath: a.index,
+      dependencies: compiled.value.dependencies,
+    },
+    compiled.value,
+  );
   const result = buildGraph(cs, {
     root: resolve(a.root),
     compiled: compiled.value,

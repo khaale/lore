@@ -363,6 +363,7 @@ function validate(
   references?: {
     owner: Artifact;
     artifacts: Record<string, Artifact>;
+    targets: TargetLookup;
     emit: (
       slot: RuntimeSlot,
       raw: string,
@@ -377,7 +378,10 @@ function validate(
   const resolveReference = (raw: string): string | undefined => {
     if (!references) return undefined;
     if (!resolvedReferences.has(raw))
-      resolvedReferences.set(raw, resolveTarget(raw, references.owner, references.artifacts));
+      resolvedReferences.set(
+        raw,
+        resolveTarget(raw, references.owner, references.artifacts, references.targets),
+      );
     return resolvedReferences.get(raw);
   };
   const add = (
@@ -1121,10 +1125,35 @@ function materializeMarkdown(
     diagnostics,
   };
 }
+type TargetLookup = {
+  byPath: Map<string, string | null>;
+  byName: Map<string, string | null>;
+};
+
+function indexTargets(artifacts: Record<string, Artifact>): TargetLookup {
+  const targets: TargetLookup = { byPath: new Map(), byName: new Map() };
+  const add = (map: Map<string, string | null>, key: string, id: string): void => {
+    const existing = map.get(key);
+    // null preserves ambiguity; an artifact matching both ID and stem counts once.
+    map.set(key, existing === undefined || existing === id ? id : null);
+  };
+  for (const artifact of Object.values(artifacts)) {
+    add(targets.byPath, resolve(artifact.physical_path), artifact.id);
+    add(
+      targets.byName,
+      basename(artifact.physical_path, extname(artifact.physical_path)),
+      artifact.id,
+    );
+    add(targets.byName, artifact.id, artifact.id);
+  }
+  return targets;
+}
+
 function resolveTarget(
   raw: string,
   from: Artifact,
   arts: Record<string, Artifact>,
+  targets: TargetLookup,
 ): string | undefined {
   if (arts[raw]) return raw;
   const trimmed = raw.trim();
@@ -1136,13 +1165,10 @@ function resolveTarget(
   if (!target) return undefined;
   if (markdown) {
     const physical = resolve(dirname(from.physical_path), target);
-    const byPath = Object.values(arts).filter((a) => resolve(a.physical_path) === physical);
-    if (byPath.length === 1) return byPath[0]!.id;
+    const byPath = targets.byPath.get(physical);
+    if (byPath !== undefined && byPath !== null) return byPath;
   }
-  const found = Object.values(arts).filter(
-    (a) => basename(a.physical_path, extname(a.physical_path)) === target || a.id === target,
-  );
-  return found.length === 1 ? found[0]!.id : undefined;
+  return targets.byName.get(target) ?? undefined;
 }
 
 type TableRecord = { declaration: TableDeclaration; owner: Candidate; target: Candidate };
@@ -2252,6 +2278,7 @@ export function buildGraph(candidates: Candidate[], options: BuildOptions): Buil
       }
     }
   }
+  const targets = indexTargets(index.artifacts);
   for (const [id, entry] of candidateById) {
     const artifact = index.artifacts[id];
     if (!artifact) continue;
@@ -2266,6 +2293,7 @@ export function buildGraph(candidates: Candidate[], options: BuildOptions): Buil
         {
           owner: artifact,
           artifacts: index.artifacts,
+          targets,
           emit(slot, raw, target, valuePath, parts) {
             const relation = parts.filter((p): p is string => typeof p === 'string').join('.');
             const nested = parts.filter((p) => typeof p === 'string').length > 1;
@@ -2300,13 +2328,10 @@ export function buildGraph(candidates: Candidate[], options: BuildOptions): Buil
   }
   for (const a of Object.values(index.artifacts))
     for (const l of a.links ?? []) {
-      let t = resolveTarget(l.target, a, index.artifacts);
+      let t = resolveTarget(l.target, a, index.artifacts, targets);
       if (!t && l.syntax === 'markdown') {
         const expected = resolve(dirname(a.physical_path), l.target.split('#', 1)[0]!);
-        const matches = Object.values(index.artifacts).filter(
-          (candidate) => resolve(candidate.physical_path) === expected,
-        );
-        if (matches.length === 1) t = matches[0]!.id;
+        t = targets.byPath.get(expected) ?? undefined;
       }
       if (t)
         index.edges!.push({

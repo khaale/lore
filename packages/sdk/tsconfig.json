@@ -15,6 +15,9 @@
     },
     {
       "path": "../filesystem"
+    },
+    {
+      "path": "../graph"
     }
   ]
 }
