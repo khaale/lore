@@ -42,7 +42,12 @@ const declarations = await rollup({
   plugins: [
     dts({
       tsconfig: join(root, 'packages/sdk/tsconfig.json'),
-      includeExternal: ['@khaale/lore-core', '@khaale/lore-schema', '@khaale/lore-filesystem'],
+      includeExternal: [
+        '@khaale/lore-core',
+        '@khaale/lore-schema',
+        '@khaale/lore-filesystem',
+        '@khaale/lore-graph',
+      ],
     }),
   ],
   onwarn(warning, warn) {

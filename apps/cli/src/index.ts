@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { runHierarchy } from './hierarchy.js';
 import {
   initializeSqliteIndex,
   refreshSqliteIndex,
@@ -319,6 +320,8 @@ Usage:
   lore index --format sqlite [--out path] [root]
   lore watch --format sqlite [root]
   lore refresh --index path [--max-age 1s] [--busy-timeout 5s] [--json]
+  lore hierarchy propose --index path [--format json|sqlite] [--root PATH] [--schema PATH] [--json]
+  lore hierarchy read --index path --definition FILE [--parent REF] [--limit N] [--json]
   lore list [--index path] [--kind Kind]
   lore refs <id> [--index path]
   lore explore [flags] [root] [id]
@@ -563,6 +566,10 @@ async function runSqlite(a: Args): Promise<void> {
 async function main() {
   const rawArgs = process.argv.slice(2);
   try {
+    if (rawArgs[0] === 'hierarchy') {
+      await runHierarchy(rawArgs.slice(1));
+      return;
+    }
     const a = parse(rawArgs);
     if (a.command === 'help' || a.command === '--help' || a.command === '-h') {
       usage();

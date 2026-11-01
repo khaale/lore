@@ -180,6 +180,13 @@ and deprecation metadata does not migrate records. `slot_uri` is available as
 field metadata; it is not a remote schema lookup. Static enum value descriptions
 and meanings do not create additional runtime values. Non-`lore:` annotations
 are accepted as annotation data, not custom validators or executable plugins.
+Class and slot annotations are available as effective detached `annotations` in
+SDK `schema.describeType()` results on the type, fields and terminal reference
+paths. Consumer-defined keys such as `bb:group` or `bb:role` can organize a
+metamodel without introducing artificial inheritance or altering graph semantics.
+Local keys override inherited keys as whole values, without deep merging; unrelated
+inherited keys remain. Type summaries omit annotations. See the SDK guide's
+metamodel annotation example for the public read shape.
 
 ## Unsupported operational features
 
@@ -202,16 +209,17 @@ complete LinkML toolchain.
 
 ## Lore annotations
 
-| Annotation                | Purpose                                                                                                                     |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `lore:explore_roles`      | Selects identity, title, summary, card or hidden presentation roles.                                                        |
-| `lore:explore_relation`   | Gives a relation a hierarchy, dependency, reference or context role.                                                        |
-| `lore:explore_label`      | Names the relation in exploration output.                                                                                   |
-| `lore:explore_order`      | Sets an integer presentation order.                                                                                         |
-| `lore:explore_views`      | Selects overview, card, tree, neighborhood and impact views.                                                                |
-| `lore:markdown_selectors` | Maps exact Markdown headings to slot values.                                                                                |
-| `lore:heading_identity`   | Declares schema-level heading identity rules with named `id` and `title` regex groups.                                      |
-| `lore:sources`            | Declares schema-level input extraction rules for nested local YAML/JSON; see [declarative sources](declarative-sources.md). |
+| Annotation                       | Purpose                                                                                                                     |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `lore:explore_roles`             | Selects identity, title, summary, card or hidden presentation roles.                                                        |
+| `lore:explore_relation`          | Gives a relation a hierarchy, dependency, reference or context role.                                                        |
+| `lore:explore_label`             | Names the relation in exploration output.                                                                                   |
+| `lore:explore_order`             | Sets an integer presentation order.                                                                                         |
+| `lore:explore_views`             | Selects overview, card, tree, neighborhood and impact views.                                                                |
+| `lore:markdown_selectors`        | Maps exact Markdown headings to slot values.                                                                                |
+| `lore:markdown_reference_column` | Maps one named Markdown-table column into a multivalued reference field on its containing record.                           |
+| `lore:heading_identity`          | Declares schema-level heading identity rules with named `id` and `title` regex groups.                                      |
+| `lore:sources`                   | Declares schema-level input extraction rules for nested local YAML/JSON; see [declarative sources](declarative-sources.md). |
 
 These are Lore-specific annotations, not portable LinkML behavior. Their concrete
 authoring forms are described in [file formats](file-formats.md#structured-markdown)

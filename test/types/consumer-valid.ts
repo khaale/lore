@@ -83,12 +83,32 @@ export async function validConstraintConsumer(
   const workspace = await openFilesystemWorkspace({ root });
   const catalog = await workspace.schema.listTypes();
   const type = await workspace.schema.describeType(catalog.items[0]!.name);
+  const annotations: Record<string, unknown>[] = [
+    type.annotations,
+    ...type.fields.map((field) => field.annotations),
+    ...(type.referencePaths ?? []).map((path) => path.annotations),
+  ];
   const constraint: import('@khaale/lore').FieldConstraints | undefined =
     type.fields[0]?.constraints;
   console.log(
+    annotations,
     constraint?.listElementsUnique,
     type.rules?.[0]?.postconditions,
     type.referencePaths?.[0]?.path,
   );
   return type.recordConstraints ?? [];
+}
+
+export async function validHierarchyConsumer(workspace: Workspace): Promise<string[]> {
+  const proposal = await workspace.hierarchy.propose();
+  const score: import('@khaale/lore').HierarchyTypeScores | undefined = Object.values(
+    proposal.typeScores,
+  )[0];
+  void score;
+  const definition: import('@khaale/lore').HierarchyDefinition = proposal.definition;
+  const roots = await workspace.hierarchy.read({ definition, includeScores: true });
+  const scoreItem = roots.items.find((n) => n.kind === 'entity');
+  const individual: import('@khaale/lore').HierarchyInstanceScores | undefined = scoreItem?.scores;
+  void individual;
+  return roots.items.flatMap((node) => (node.kind === 'entity' ? [node.entityId] : []));
 }

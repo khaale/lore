@@ -94,3 +94,20 @@ Private SQLite format 2 uses compact shared dictionaries and materialized intege
 edges/arcs. On `INDEX_REBUILD_REQUIRED` for an older format, close consumers,
 remove the disposable database and `-wal`/`-shm` sidecars, then initialize again.
 Do not edit or migrate authored records to repair a derived-format mismatch.
+
+## Hierarchy candidates
+
+`lore hierarchy propose --index PATH --format json|sqlite --json` produces an
+editable proposal envelope. Save it and pass it (or its bare `definition`) to
+`lore hierarchy read --index PATH --format json|sqlite --definition FILE --json`.
+Read one parent's immediate children with `--parent REF`, `--limit N` and an opaque
+`--continuation`. JSON also uses the existing `--root`, `--schema`, `--ignore`
+saved-index checks; SQLite uses the indexed model without implicit refresh.
+Text proposal counts are global observed type totals, not local subtree counts.
+Use diagnostic detail for branch eligible/zero/one/many; review alternatives and
+source-context hypotheses before adopting a tree. No authored files are changed.
+
+Add `--scores` to hierarchy read for independent individual structure/connectivity
+hints on real entities. They are normalized across the selected scope per actual
+type, never across only the current page. The calculation adds bounded whole-scope
+work; ordinary reads omit scores. Groups are not scored, and ordering is unchanged.

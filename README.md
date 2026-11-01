@@ -46,6 +46,8 @@ Lore supports a focused LinkML profile: classes, inheritance and mixins, typed
 fields and relations, inline objects, static enums, uniqueness and value constraints.
 Some descriptive metadata is accepted without implementing other LinkML tools'
 behavior; unsupported operational metaslots produce diagnostics.
+Detailed SDK discovery exposes custom type and relation annotations so consumers
+can organize the metamodel without hardcoding domain types in Lore.
 
 | Source       | Main capabilities                                                                                                |
 | ------------ | ---------------------------------------------------------------------------------------------------------------- |
@@ -232,3 +234,9 @@ using Lore in other projects and do not depend on this repository's local planni
 files.
 
 See [PUBLISH.md](PUBLISH.md) for the single-package release process and npm setup.
+
+Discover an editable type hierarchy and lazily read its placements with
+`workspace.hierarchy.propose()` / `workspace.hierarchy.read()`, or
+`lore hierarchy propose|read`. Candidates distinguish observed model relations,
+source-context hypotheses and navigation groups; partial alternatives remain
+available for review. See [hierarchy contracts and examples](docs/sdk.md#candidate-hierarchies).

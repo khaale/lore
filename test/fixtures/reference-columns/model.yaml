@@ -1,0 +1,13 @@
+name: reference-columns
+classes:
+  Thing:
+    attributes:
+      id: { identifier: true }
+      kind: { designates_type: true }
+      targets:
+        range: Thing
+        multivalued: true
+        annotations:
+          'lore:markdown_reference_column':
+            heading: '## Calls'
+            column: Target

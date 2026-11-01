@@ -880,6 +880,185 @@ const sameSurfaceLink = (left: SurfaceLink, right: SurfaceLink): boolean =>
   (left.span && right.span
     ? left.span.line === right.span.line && left.span.column === right.span.column
     : true);
+function materializeReferenceColumns(
+  candidate: Candidate,
+  cls: RuntimeClass,
+  reserved: Array<{ section: MarkdownSection; slot: string }>,
+): { candidate: Candidate; diagnostics: Diagnostic[] } {
+  const columns = Object.entries(cls.slots).filter(
+    ([, slot]) => slot.annotations['lore:markdown_reference_column'] !== undefined,
+  );
+  if (!columns.length) return { candidate, diagnostics: [] };
+  const data = { ...candidate.data },
+    spans = { ...candidate.spans },
+    propertySources = { ...(candidate.propertySources ?? {}) },
+    diagnostics: Diagnostic[] = [],
+    claimed: SurfaceLink[] = [],
+    owners = new Map<string, string>();
+  const error = (slot: string, code: string, message: string, span?: SourceSpan) =>
+    diagnostics.push({
+      severity: 'error',
+      code,
+      message,
+      source: candidate.source,
+      slot,
+      ...(span ? { span } : {}),
+    });
+  for (const [name, slot] of columns) {
+    const config = slot.annotations['lore:markdown_reference_column'] as
+      { heading: string; column: string } | undefined;
+    if (!config) continue;
+    const selector = markdownSelector(config.heading);
+    if (!selector || slot.mode !== 'reference' || !slot.multivalued) {
+      error(
+        name,
+        'INVALID_MARKDOWN_REFERENCE_COLUMN',
+        'expected heading/column on a multivalued reference field',
+      );
+      continue;
+    }
+    const sections = candidate.sections.filter(
+      (s) =>
+        s.level === selector.level && s.heading.trim().replace(/\s+/g, ' ') === selector.heading,
+    );
+    if (!sections.length) continue;
+    if (sections.length !== 1) {
+      error(
+        name,
+        'DUPLICATE_MARKDOWN_SECTION',
+        'reference column heading matches several sections',
+        sections[0]!.span,
+      );
+      continue;
+    }
+    const section = sections[0]!,
+      end = sectionEndLine(candidate.sections, candidate.sections.indexOf(section));
+    const tables = (candidate.tables ?? []).filter(
+      (t) => section.span && t.span.line > section.span.line && t.span.line < end,
+    );
+    if (!tables.length) continue; // Status prose is not an authored empty reference list.
+    const column = config.column.trim().replace(/\s+/g, ' '),
+      matches = tables.filter((t) =>
+        t.headers.some((h) => h.value.trim().replace(/\s+/g, ' ') === column),
+      );
+    if (matches.length !== 1) {
+      error(
+        name,
+        matches.length ? 'MARKDOWN_TABLE_AMBIGUOUS' : 'MARKDOWN_TABLE_COLUMN',
+        matches.length
+          ? 'multiple tables match the reference column'
+          : 'selected section has tables but no matching reference column',
+        section.span,
+      );
+      continue;
+    }
+    const table = matches[0]!,
+      indexes = table.headers.flatMap((h, i) =>
+        h.value.trim().replace(/\s+/g, ' ') === column ? [i] : [],
+      );
+    if (!table.valid || indexes.length !== 1) {
+      error(
+        name,
+        'MARKDOWN_TABLE_SHAPE',
+        table.diagnostic ?? 'selected column header is repeated',
+        table.span,
+      );
+      continue;
+    }
+    const index = indexes[0]!,
+      key = `${table.span.line}:${index}`,
+      prior = owners.get(key);
+    const other = reserved.find(
+      (r) =>
+        r.section.span &&
+        table.span.line > r.section.span.line &&
+        table.span.line < sectionEndLine(candidate.sections, candidate.sections.indexOf(r.section)),
+    );
+    if (prior || other) {
+      error(
+        name,
+        'OWNERSHIP_CONFLICT',
+        `reference column is already selected by ${prior ?? other!.slot}`,
+        table.headerSpan,
+      );
+      continue;
+    }
+    owners.set(key, name);
+    const values: string[] = [],
+      cells: MarkdownTableCell[] = [];
+    let invalid = false;
+    for (const row of table.rows) {
+      const cell = row.cells[index]!,
+        parsed = tableReferenceValue(cell.value);
+      if (parsed.error) {
+        error(name, 'MARKDOWN_TABLE_REFERENCE', parsed.error, cell.span);
+        invalid = true;
+        continue;
+      }
+      if (parsed.value !== undefined) {
+        values.push(parsed.value);
+        cells.push(cell);
+      }
+    }
+    if (invalid) continue;
+    const existing = data[name],
+      declared = Object.prototype.hasOwnProperty.call(data, name);
+    if (existing !== undefined && (!isEmpty(existing) || (candidate.enriched && declared))) {
+      if (!candidate.enriched && markdownValuesEqual(slot, existing, values)) continue;
+      error(
+        name,
+        candidate.enriched ? 'OWNERSHIP_CONFLICT' : 'MARKDOWN_FRONTMATTER_CONFLICT',
+        'reference column competes with an existing property',
+        table.headerSpan,
+      );
+      continue;
+    }
+    if (candidate.enriched && declared) {
+      error(
+        name,
+        'OWNERSHIP_CONFLICT',
+        'reference column competes with an existing property',
+        table.headerSpan,
+      );
+      continue;
+    }
+    data[name] = values;
+    spans[name] = table.headerSpan;
+    propertySources[name] = {
+      source: candidate.source,
+      physicalPath: candidate.physicalPath,
+      representation: 'markdown-table',
+      span: table.headerSpan,
+    };
+    cells.forEach((cell, i) => {
+      spans[`${name}[${i}]`] = cell.span;
+      propertySources[`${name}[${i}]`] = {
+        source: candidate.source,
+        physicalPath: candidate.physicalPath,
+        representation: 'markdown-table',
+        span: cell.span,
+      };
+      claimed.push(
+        ...candidate.links.filter(
+          (link) =>
+            link.span?.line === cell.span.line &&
+            link.span.column >= cell.span.column &&
+            link.span.column <= (cell.span.end_column ?? Infinity),
+        ),
+      );
+    });
+  }
+  return {
+    candidate: {
+      ...candidate,
+      data,
+      spans,
+      propertySources,
+      links: candidate.links.filter((link) => !claimed.some((c) => sameSurfaceLink(c, link))),
+    },
+    diagnostics,
+  };
+}
 function materializeMarkdown(
   candidate: Candidate,
   runtimeClass: RuntimeClass,
@@ -1111,8 +1290,8 @@ function materializeMarkdown(
     candidate.source.includes('#anchor=') || candidate.source.includes('#heading-id=')
       ? narrativeRegionBody(candidate, semanticSections)
       : undefined;
-  return {
-    candidate: {
+  const columns = materializeReferenceColumns(
+    {
       ...candidate,
       data,
       spans,
@@ -1122,8 +1301,10 @@ function materializeMarkdown(
         (link) => !claimed.some((semantic) => sameSurfaceLink(link, semantic)),
       ),
     },
-    diagnostics,
-  };
+    runtimeClass,
+    selectedRegions,
+  );
+  return { candidate: columns.candidate, diagnostics: [...diagnostics, ...columns.diagnostics] };
 }
 type TargetLookup = {
   byPath: Map<string, string | null>;

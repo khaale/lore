@@ -1,4 +1,6 @@
 import { referencePaths, referenceSlot } from '@khaale/lore-schema';
+import { HierarchyReaderImpl, type HierarchyReader } from './hierarchy.js';
+import type { HierarchyInput } from '@khaale/lore-graph';
 import { createHash } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -164,11 +166,13 @@ export type FieldConstraints = {
 };
 export type ReferencePathDescription = {
   path: string;
+  annotations: Record<string, unknown>;
   relationTargets: string[];
   constraints: FieldConstraints;
 };
 export type FieldDescription = {
   name: string;
+  annotations: Record<string, unknown>;
   description?: string;
   range: string;
   valueKind: 'scalar' | 'inline-object' | 'reference';
@@ -186,6 +190,7 @@ export type FieldDescription = {
   constraints?: FieldConstraints;
 };
 export type TypeDescription = TypeSummary & {
+  annotations: Record<string, unknown>;
   recordConstraints?: RecordConstraintExpression[];
   rules?: ConditionalRule[];
   referencePaths?: ReferencePathDescription[];
@@ -401,6 +406,7 @@ export interface ReadSnapshot {
   readonly schema: SchemaReader;
   readonly entities: EntityReader;
   readonly graph: GraphReader;
+  readonly hierarchy: HierarchyReader;
   describe(): Promise<WorkspaceDescription>;
   query(options: QueryOptions): Promise<QueryResult>;
   search(options: SearchOptions): Promise<SearchResult>;
@@ -438,6 +444,7 @@ export interface Workspace {
   readonly schema: SchemaReader;
   readonly entities: EntityReader;
   readonly graph: GraphReader;
+  readonly hierarchy: HierarchyReader;
   readonly results: ResultStore;
   readonly trace: TraceStore;
   describe(): Promise<WorkspaceDescription>;
@@ -450,6 +457,8 @@ export interface Workspace {
 
 export type SourceEntity = SemanticEntity & { narrative?: string };
 export type ReadSource = {
+  root?: string;
+  hierarchyInput?: () => HierarchyInput;
   authority: WorkspaceAuthority;
   schema: RuntimeSchemaIR;
   schemaIdentity: SchemaIdentity;
@@ -746,6 +755,7 @@ function fieldDescription(schema: RuntimeSchemaIR, slot: RuntimeSlot): FieldDesc
     maximumValue = bounds(slot.maximumValue, type?.maximumValue, false);
   return {
     name: slot.name,
+    annotations: clone(slot.annotations),
     constraints: {
       patterns: [...new Set([...slot.patterns, ...(type?.patterns ?? [])])],
       listElementsUnique: slot.listElementsUnique === true,
@@ -775,6 +785,7 @@ function fieldDescription(schema: RuntimeSchemaIR, slot: RuntimeSlot): FieldDesc
 function typeDescription(source: ReadSource, runtimeClass: RuntimeClass): TypeDescription {
   return {
     ...typeSummary(runtimeClass),
+    annotations: clone(runtimeClass.annotations),
     recordConstraints: (runtimeClass.recordConstraints ?? []).map(recordExpressionDescription),
     rules: (runtimeClass.rules ?? []).map((r) => ({
       ...(r.preconditions ? { preconditions: recordExpressionDescription(r.preconditions) } : {}),
@@ -782,7 +793,12 @@ function typeDescription(source: ReadSource, runtimeClass: RuntimeClass): TypeDe
     })),
     referencePaths: referencePaths(source.schema, runtimeClass.name).map(({ path, slot }) => {
       const d = fieldDescription(source.schema, slot);
-      return { path, relationTargets: d.relationTargets, constraints: d.constraints! };
+      return {
+        path,
+        annotations: d.annotations,
+        relationTargets: d.relationTargets,
+        constraints: d.constraints!,
+      };
     }),
     schema: source.schemaIdentity,
     ...(runtimeClass.parent === undefined ? {} : { parent: runtimeClass.parent }),
@@ -998,6 +1014,7 @@ async function openFilesystemSource(options: FilesystemWorkspaceOptions): Promis
     const stateKey = digest({ hash, stamps });
     const state = buildState('filesystem', hash, stateKey);
     const source: ReadSource = {
+      root,
       authority: 'filesystem',
       schema: compiled.ir,
       schemaIdentity: schemaIdentity(compiled.ir, hash),
@@ -1927,14 +1944,20 @@ export class ReadSnapshotImpl implements ReadSnapshot {
   readonly schema: SchemaReader;
   readonly entities: EntityReader;
   readonly graph: GraphReader;
+  readonly hierarchy: HierarchyReader;
   constructor(
     private readonly source: ReadSource,
     private readonly completeReads = false,
+    scopedHierarchy = false,
   ) {
     this.snapshot = source.state;
     this.schema = new SchemaReaderImpl(source, this.completeReads);
     this.entities = new EntityReaderImpl(source);
     this.graph = new GraphReaderImpl(source, this.completeReads);
+    this.hierarchy = new HierarchyReaderImpl(source, scopedHierarchy);
+  }
+  dispose(): void {
+    (this.hierarchy as HierarchyReaderImpl).dispose();
   }
   async describe(): Promise<WorkspaceDescription> {
     await this.source.revalidate();
@@ -2350,6 +2373,12 @@ function limitGraph(
 
 function tracedRead(read: ReadSnapshot, session: PtcSession): PtcRead {
   return {
+    hierarchy: {
+      propose: (options) =>
+        session.run({ method: 'hierarchy.propose' }, () => read.hierarchy.propose(options)),
+      read: (options) =>
+        session.run({ method: 'hierarchy.read' }, () => read.hierarchy.read(options)),
+    },
     snapshot: read.snapshot,
     limitItems,
     limitGraph,
@@ -2396,6 +2425,7 @@ class WorkspaceImpl implements Workspace {
   readonly schema: SchemaReader;
   readonly entities: EntityReader;
   readonly graph: GraphReader;
+  readonly hierarchy: HierarchyReader;
   private scope: PtcScope | undefined;
   constructor(
     private readonly source: ReadSource,
@@ -2405,6 +2435,7 @@ class WorkspaceImpl implements Workspace {
     this.schema = new SchemaReaderImpl(source);
     this.entities = new EntityReaderImpl(source);
     this.graph = new GraphReaderImpl(source);
+    this.hierarchy = new HierarchyReaderImpl(source);
   }
   private get ptcScope(): PtcScope {
     this.scope ??= createPtcRuntime(this.ptcOptions).createScope();
@@ -2429,17 +2460,26 @@ class WorkspaceImpl implements Workspace {
     return this.readSnapshot((read) => read.explore(options));
   }
   async readSnapshot<T>(callback: (read: ReadSnapshot) => Promise<T> | T): Promise<T> {
-    const read = new ReadSnapshotImpl(this.source);
-    return callback(read);
+    const read = new ReadSnapshotImpl(this.source, false, true);
+    try {
+      return await callback(read);
+    } finally {
+      read.dispose();
+    }
   }
   async call<T>(callback: (read: PtcRead) => Promise<T> | T): Promise<PtcResponse<T>> {
     return this.ptcScope.execute(async (session) => {
       await this.source.revalidate();
       // All operations read the same in-memory source; check files at call boundaries.
       const source = { ...this.source, revalidate: async () => {} };
-      const result = await callback(tracedRead(new ReadSnapshotImpl(source, true), session));
-      await this.source.revalidate();
-      return result;
+      const read = new ReadSnapshotImpl(source, true, true);
+      try {
+        const result = await callback(tracedRead(read, session));
+        await this.source.revalidate();
+        return result;
+      } finally {
+        read.dispose();
+      }
     });
   }
 }

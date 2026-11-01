@@ -302,7 +302,7 @@ Multivalued fields SHALL require arrays rather than automatic scalar wrapping. O
 
 ### Requirement: Inline and boolean constraints
 
-Lore SHALL recursively validate inline objects and supported any_of, all_of, none_of and exactly_one_of expressions. Alternative scalar/reference/inline branches SHALL be checked without leaking rejected-branch diagnostics for an accepted union.
+Lore SHALL recursively validate inline objects and supported any_of, all_of, none_of and exactly_one_of slot expressions. Alternative scalar/reference/inline branches SHALL be checked without leaking rejected-branch diagnostics for an accepted union. Record-level boolean constraints SHALL follow the Record expressions requirement below, independently of classification.
 
 #### Scenario: Valid alternative
 
@@ -325,7 +325,7 @@ Lore SHALL enforce class-level unique_keys constraints, including inherited keys
 
 ### Requirement: Static enums and field expression vocabulary
 
-Enums SHALL use permissible_values keys. Direct record checks SHALL compare String(value); expression/SDK checks SHALL require string members. Slot expressions SHALL support range, required, pattern, equals_string, equals_string_in, cardinalities and nested any_of/all_of/none_of/exactly_one_of only. Equality metaslots SHALL NOT be standalone slot fields.
+Enums SHALL use permissible_values keys. Direct record checks SHALL compare String(value); expression/SDK checks SHALL require string members. Slot expressions SHALL support range, required, pattern, equals_string, equals_string_in, value_presence, cardinalities and nested any_of/all_of/none_of/exactly_one_of only. Equality metaslots SHALL NOT be standalone slot fields. value_presence SHALL accept PRESENT or ABSENT and follow Lore's existing required-value emptiness policy; false and zero SHALL remain present values.
 
 #### Scenario: Enum label is not a value
 
@@ -342,9 +342,14 @@ Enums SHALL use permissible_values keys. Direct record checks SHALL compare Stri
 - **WHEN** equals_string is placed directly on a slot instead of inside an expression
 - **THEN** compilation reports an unsupported metaslot
 
+#### Scenario: Explicit absence
+
+- **WHEN** a slot condition requires ABSENT but the record supplies a nonempty value
+- **THEN** the condition fails; required false does not express this prohibition
+
 ### Requirement: Metadata and unsupported operations
 
-Accepted metadata SHALL NOT imply execution. Unknown semantic metaslots SHALL be diagnosed. Dynamic enums, derivation, general class rules, transitive/symmetric inference, inlined_as_dict and extra_slots.range_expression SHALL be unsupported. Lore SHALL NOT generate classes/JSON Schema/RDF/OWL or execute schema code. Classification acceptance/evaluation SHALL follow [knowledge-graph](../../core/knowledge-graph/spec.md).
+Accepted metadata SHALL NOT imply execution. Unknown semantic metaslots SHALL be diagnosed. Dynamic enums, derivation, transitive/symmetric inference, inlined_as_dict and extra_slots.range_expression SHALL be unsupported. Class rules SHALL execute only the bounded conditional subset below; elseconditions, bidirectional rules and executable expressions SHALL remain unsupported. Lore SHALL NOT generate classes/JSON Schema/RDF/OWL or execute schema code. Classification acceptance/evaluation SHALL follow [knowledge-graph](../../core/knowledge-graph/spec.md).
 
 #### Scenario: Unsupported inference
 
@@ -355,6 +360,11 @@ Accepted metadata SHALL NOT imply execution. Unknown semantic metaslots SHALL be
 
 - **WHEN** a model contains accepted mappings or deprecation metadata
 - **THEN** Lore does not merge identities or migrate authored records from that metadata
+
+#### Scenario: Unsupported rule feature
+
+- **WHEN** a class rule contains elseconditions or an executable expression
+- **THEN** compilation rejects the unsupported construct rather than ignoring it
 
 ### Requirement: Effective constraint induction
 
@@ -379,3 +389,119 @@ Effective fields SHALL combine class/mixin slots, attributes and applicable slot
 
 - **WHEN** compatible inherited/local numeric bounds differ
 - **THEN** the effective field uses the tighter supported bounds
+
+### Requirement: Declarative source annotation
+
+Lore SHALL support `lore:sources` only in schema annotations. Its value SHALL be
+a mapping of named sources with nonempty file selectors and nonempty entity lists,
+with optional nonblank static namespace. Lore SHALL compile the vocabulary
+defined in [sources/declarative](../../sources/declarative/spec.md), rejecting
+unknown declaration keys/operators, invalid shapes, unknown bindings/rules/classes,
+undeclared target fields and statically incompatible assignments. Projected
+classes SHALL have one effective string-compatible identifier. Extraction SHALL
+fill the identifier and any type-designator field from the generated ID and
+declared class respectively, including when those fields are required. Mapped fields
+SHALL NOT overwrite it or type designators. Data-dependent validation SHALL
+follow the ordinary record validation contract. `poc:projections` SHALL NOT be
+an executable alias, and the annotation SHALL NOT enable output generation.
+
+#### Scenario: Valid input mapping
+
+- **WHEN** a model declares valid `lore:sources` rules for a user-defined class
+- **THEN** compilation provides their executable input semantics without adding a built-in domain class
+
+#### Scenario: Invalid placement or reference
+
+- **WHEN** `lore:sources` appears on a class/slot or refers to an unknown bound value or target rule
+- **THEN** compilation fails before source extraction
+
+#### Scenario: Unselectable field
+
+- **WHEN** a rule assigns an undeclared field even though its class allows extra slots
+- **THEN** compilation rejects the assignment rather than producing data hidden from ordinary SDK field selection
+
+### Requirement: Source declaration composition
+
+Lore SHALL compose named source definitions from its local schema import closure
+by unique name, visiting a shared dependency once. Distinct duplicate
+declarations SHALL fail rather than override or deep-merge. Effective source
+declarations SHALL participate in schema identity. File selectors SHALL resolve
+against the knowledge root, not the declaring schema's directory.
+
+#### Scenario: Shared imported declaration
+
+- **WHEN** two imports depend on one physical schema declaring a named source
+- **THEN** that declaration participates once
+
+#### Scenario: Conflicting source names
+
+- **WHEN** a root and an imported schema each declare the same source name
+- **THEN** compilation reports a conflict instead of selecting one
+
+#### Scenario: Extraction edit
+
+- **WHEN** an effective source field mapping changes
+- **THEN** the compiled schema identity changes under the existing schema-identity contract
+
+### Requirement: Unique collection elements
+
+Effective multivalued slots SHALL support inherited list_elements_unique. A true inherited constraint SHALL NOT be disabled by a local false value. Duplicate elements SHALL fail validation without deduplicating authored data. Scalar and inline values SHALL use typed structural equality with object key order ignored and array order retained. Resolved references SHALL compare target IDs; scalar/reference unions SHALL retain the distinction between a scalar literal and a resolved reference. A true unique-elements declaration on an effective single-valued slot SHALL be a schema error. Absent optional lists SHALL remain optional.
+
+#### Scenario: Inherited duplicate
+
+- **WHEN** a subclass supplies duplicate elements for a slot inheriting list_elements_unique true
+- **THEN** validation reports a duplicate-value error identifying that slot and duplicate element
+
+#### Scenario: Equivalent link surfaces
+
+- **WHEN** two different supported reference surfaces resolve to the same target in a unique list
+- **THEN** they are duplicate reference elements
+
+#### Scenario: Inline equality
+
+- **WHEN** two inline objects differ only in mapping key order
+- **THEN** they are duplicates in a unique list, including recursively resolved references
+
+### Requirement: Record expressions
+
+Classes SHALL support record-level any_of, all_of, none_of and exactly_one_of over anonymous record expressions containing slot_conditions and nested record boolean groups. Each slot condition SHALL use the supported slot-expression vocabulary against that record. Evaluation SHALL include inherited class/mixin constraints and inline instances. A failed enclosing expression SHALL produce an owning-record diagnostic with a nested location when applicable; failures in branches of a satisfied expression SHALL NOT leak diagnostics. Record constraints SHALL NOT classify records. Other record-expression metaslots SHALL fail compilation rather than imply general classifier/reasoner semantics.
+
+#### Scenario: Exclusive selector
+
+- **WHEN** an inline selector declares exactly_one_of requiring workload or application
+- **THEN** one populated field passes and both/neither fail
+
+#### Scenario: Subclass contract
+
+- **WHEN** a subclass omits an inherited record constraint locally
+- **THEN** its instances remain subject to that constraint
+
+### Requirement: Bounded conditional class rules
+
+Class rules SHALL support optional preconditions and required postconditions expressed using Record expressions. Omitted preconditions SHALL mean unconditional application. A false precondition SHALL impose no postcondition; a true precondition SHALL require its postcondition. Rules SHALL apply to descendants and inline values, without mutating values, filling defaults or inferring graph assertions. Invalid references in conditions SHALL NOT hide ordinary reference diagnostics.
+
+#### Scenario: Conditional parent
+
+- **WHEN** a rule matches a site's kind and requires parent ABSENT
+- **THEN** a populated parent fails the rule while absence passes
+
+#### Scenario: Required parent branch
+
+- **WHEN** a different kind matches a rule requiring parent PRESENT
+- **THEN** absence fails and a valid populated reference passes
+
+#### Scenario: Inactive condition
+
+- **WHEN** a record does not match a rule's preconditions
+- **THEN** that rule alone emits no postcondition error
+
+### Requirement: Reference column annotation
+The supported profile SHALL include lore:markdown_reference_column as executable
+metadata on a multivalued reference slot. Its mapping SHALL contain exactly
+heading and column with nonempty string values and a valid heading selector.
+Invalid shape, scalar/inline/single-reference usage or a competing
+lore:markdown_selectors annotation on that slot SHALL fail schema compilation.
+
+#### Scenario: Invalid column declaration
+- **WHEN** a scalar field uses a reference-column annotation or its keys are invalid
+- **THEN** compilation fails before reading source records

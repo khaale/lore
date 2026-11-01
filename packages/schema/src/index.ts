@@ -241,6 +241,7 @@ const SUPPORTED_LORE_ANNOTATIONS = [
   'lore:explore_order',
   'lore:explore_views',
   'lore:markdown_selectors',
+  'lore:markdown_reference_column',
   'lore:heading_identity',
   'lore:sources',
 ] as const;
@@ -1551,6 +1552,29 @@ function checkProfile(s: AssertedSchema): CompilerDiagnostic[] {
             `${scope}.${k}`,
           ),
         );
+      if (k === 'lore:markdown_reference_column') {
+        const spec =
+          v && typeof v === 'object' && !Array.isArray(v)
+            ? (v as Record<string, unknown>)
+            : undefined;
+        if (
+          !spec ||
+          Object.keys(spec).length !== 2 ||
+          typeof spec.heading !== 'string' ||
+          !/^#{1,6}\s*\S/.test(spec.heading.trim()) ||
+          typeof spec.column !== 'string' ||
+          !spec.column.trim()
+        )
+          ds.push(
+            diagnostic(
+              'invalid-schema',
+              'INVALID_MARKDOWN_REFERENCE_COLUMN',
+              `${scope} requires exactly heading and column strings`,
+              undefined,
+              `${scope}.${k}`,
+            ),
+          );
+      }
       if (k === 'lore:heading_identity') checkHeadingIdentityAnnotation(scope, v, ds);
     }
   };
@@ -2164,6 +2188,17 @@ export function normalizeSchema(schema: AssertedSchema): RuntimeSchemaIR {
 }
 function compileIR(schema: AssertedSchema): RuntimeSchemaIR {
   const ir = finalizeIR(normalize(schema));
+  for (const cls of Object.values(ir.classes))
+    for (const slot of Object.values(cls.slots))
+      if (
+        slot.annotations['lore:markdown_reference_column'] !== undefined &&
+        (slot.mode !== 'reference' ||
+          !slot.multivalued ||
+          slot.annotations['lore:markdown_selectors'] !== undefined)
+      )
+        throw new Error(
+          `${cls.name}.${slot.name}: lore:markdown_reference_column requires a multivalued reference slot without lore:markdown_selectors`,
+        );
   const sources = compileSources(schema.annotations?.[SOURCES_ANNOTATION], ir);
   if (sources.length) ir.sources = sources;
   return ir;

@@ -161,3 +161,46 @@ such as `refinements.scope` work with bounded graph reads; inline objects stay
 within their owning entity and nested links are projected as target IDs. Optional
 public metadata fields describe the supported executable subset. Discovery does
 not revalidate an older saved projection; rebuild after validation upgrades.
+
+## Candidate hierarchy navigation
+
+Use `workspace.hierarchy.propose()` for an editable type-tree starting point;
+review alternatives/source-context hypotheses with the user before treating them
+as the intended view. Save `result.definition`, then call
+`workspace.hierarchy.read({definition, parent?, limit?, continuation?})` for root
+or immediate children. Reuse opaque placement refs; virtual groups are not entity
+IDs. Hydrate selected real IDs with `entities.getMany`, and obtain bounded
+canonical crosslinks with `graph.subgraph`. Do not treat a child page as a complete
+global inventory or quotient graph. Preserve separate page/computation/placement
+coverage and distinguish global type totals from local immediate child counts.
+Labels use explicit scalar selectors with ID fallback. See the
+[SDK hierarchy contract](../../../docs/sdk.md#candidate-hierarchies) for editable
+branches, grouping and optional checked LCA display placement.
+
+`proposal.typeScores[type]` contains two independent relative focus hints, both
+0..1 within the current corpus and candidate. `structureScore` sums unique
+descendant types with distance decay 0.65, then divides by the largest sum.
+`connectivityScore` counts unique observed neighbor types weighted by separation
+in the undirected candidate hierarchy: adjacent types contribute 0, distance d
+contributes `1 - 2^(-(d-1))`, disconnected types contribute 1; it is normalized
+separately. Alternatives/navigation groups and LCA execution are excluded from
+this calculation; source-context hypotheses and polymorphic type branches count.
+Self-type recursion adds no diversity. Multiplying records/edges does not increase
+the scores. They suggest initial focus without hiding any type; never sum them
+into a single importance score. Zero connectivity can accompany a strong
+structural backbone. These are not semantic confidence, criticality, probabilities
+or comparable values across corpora; schema granularity and a wrong candidate
+hierarchy can change them. Editing a definition does not recompute proposal scores.
+
+For individual focus, opt into `hierarchy.read({definition, includeScores:true})`.
+Real entity nodes then carry `scores: {structureScore, connectivityScore}`. These
+are normalized separately among all selected entities of the same actual type,
+including unassigned members, and remain independent of page size or occurrence.
+Structure uses distinct **different** actual descendant types with shortest-distance
+0.65 decay after selected placement policies. Connectivity uses that entity's own
+unique neighboring types with the same type-hierarchy separation weights described
+above; it is not an entity-to-entity distance or same-type bridge metric. Only
+selected-scope endpoints participate. Resolved placement coverage still applies.
+Default reads omit scores; requesting them adds budgeted whole-scope computation.
+Do not sum these hints, interpret zero as absence of value, or compare across types
+as though their denominators were shared. Virtual groups have no scores.

@@ -1,4 +1,6 @@
 import { referencePaths } from '@khaale/lore-schema';
+import type { HierarchyReader } from './hierarchy.js';
+import type { HierarchyInput } from '@khaale/lore-graph';
 import { resolve } from 'node:path';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import type { Artifact, IndexV2, SemanticRelation } from '@khaale/lore-core';
@@ -62,6 +64,7 @@ export type IndexedReadSnapshot = IndexedMethods<
   readonly schema: IndexedMethods<ReadSnapshot['schema']>;
   readonly entities: IndexedMethods<ReadSnapshot['entities']>;
   readonly graph: IndexedMethods<ReadSnapshot['graph']>;
+  readonly hierarchy: IndexedMethods<HierarchyReader>;
 };
 export type SqliteWorkspaceOptions = {
   indexPath: string;
@@ -125,6 +128,7 @@ function sqliteSource(
     diagnostics: [],
   };
   const source: ReadSource = {
+    root: meta.config.root,
     authority: 'filesystem',
     schema,
     schemaIdentity: {
@@ -192,6 +196,38 @@ function sqliteSource(
       },
     },
   };
+  source.hierarchyInput = (): HierarchyInput => ({
+    root: meta.config.root,
+    schema,
+    *nodes() {
+      check();
+      for (const row of db
+        .prepare(
+          'SELECT e.external_id,e.provenance,t.name AS type FROM lore_entities e JOIN lore_types t ON t.id=e.type_id ORDER BY e.id',
+        )
+        .iterate()) {
+        const p = compact.paths.unpack(JSON.parse(String(row.provenance)));
+        const file = p.physicalPath;
+        yield {
+          id: String(row.external_id),
+          type: String(row.type),
+          file,
+          source: p.source.includes('#') ? file + p.source.slice(p.source.indexOf('#')) : file,
+        };
+      }
+    },
+    *links() {
+      check();
+      const sql = `SELECT f.external_id AS source,p.name AS predicate,t.external_id AS target FROM lore_edges e JOIN lore_entities f ON f.id=e.from_id JOIN lore_entities t ON t.id=e.to_id JOIN lore_predicates p ON p.id=e.predicate_id
+        UNION SELECT f.external_id,p.name,t.external_id FROM lore_edge_presentations e JOIN lore_entities f ON f.id=e.from_id JOIN lore_entities t ON t.id=e.to_id JOIN lore_predicates p ON p.id=e.predicate_id`;
+      for (const row of db.prepare(sql).iterate())
+        yield { from: String(row.source), relation: String(row.predicate), to: String(row.target) };
+    },
+    property: (id, field) => {
+      check();
+      return get(id)?.properties[field];
+    },
+  });
   let graph: GraphView | undefined;
   source.graphView = () => {
     check();
@@ -301,11 +337,10 @@ function sqliteGraph(
 }
 
 function indexedReader(
-  source: ReadSource,
+  read: ReadSnapshotImpl,
   snapshot: IndexedSnapshotInfo,
   check: () => void,
 ): IndexedReadSnapshot {
-  const read = new ReadSnapshotImpl(source);
   async function result<T extends { snapshot: SnapshotInfo }>(
     work: () => Promise<T>,
   ): Promise<IndexedResult<T>> {
@@ -318,6 +353,10 @@ function indexedReader(
     get snapshot() {
       check();
       return structuredClone(snapshot);
+    },
+    hierarchy: {
+      propose: (options) => result(() => read.hierarchy.propose(options)),
+      read: (options) => result(() => read.hierarchy.read(options)),
     },
     describe: () => result(() => read.describe()),
     query: (options: QueryOptions) => result(() => read.query(options)),
@@ -363,6 +402,7 @@ class SqliteWorkspaceImpl implements SqliteWorkspace {
     let db: DatabaseSync | undefined;
     let reading = false;
     let alive = true;
+    let scopedRead: ReadSnapshotImpl | undefined;
     try {
       const accepted =
         this.options.freshness.mode === SQLITE_FRESHNESS.REFRESH_ON_READ
@@ -413,10 +453,10 @@ class SqliteWorkspaceImpl implements SqliteWorkspace {
             'SQLite read scope has completed',
           );
       };
-      return await callback(
-        indexedReader(sqliteSource(db, meta, this.options, check), state, check),
-      );
+      scopedRead = new ReadSnapshotImpl(sqliteSource(db, meta, this.options, check), false, true);
+      return await callback(indexedReader(scopedRead, state, check));
     } finally {
+      scopedRead?.dispose();
       alive = false;
       try {
         if (reading) db!.exec('ROLLBACK');
@@ -461,6 +501,12 @@ class SqliteWorkspaceImpl implements SqliteWorkspace {
     listTypes: (options: TypeCatalogOptions = {}) =>
       this.readSnapshot((read) => read.schema.listTypes(options)),
     describeType: (type: string) => this.readSnapshot((read) => read.schema.describeType(type)),
+  };
+  readonly hierarchy = {
+    propose: (options?: Parameters<HierarchyReader['propose']>[0]) =>
+      this.readSnapshot((read) => read.hierarchy.propose(options)),
+    read: (options: Parameters<HierarchyReader['read']>[0]) =>
+      this.readSnapshot((read) => read.hierarchy.read(options)),
   };
   readonly entities = {
     get: (id: string, options: GetOptions = {}) =>

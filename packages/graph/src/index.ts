@@ -1,4 +1,5 @@
 // Private computation boundary. Never re-export this package from @khaale/lore.
+export * from './hierarchy.js';
 import { referencePaths, type RuntimeSchemaIR } from '@khaale/lore-schema';
 import type { GraphSnapshot } from '@graphty/graph-format';
 

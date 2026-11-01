@@ -117,10 +117,18 @@ const sqlitePath = process.argv[3];
 const sqlite = await openSqliteWorkspace({indexPath: sqlitePath, freshness: {mode: 'indexed'}});
 assert.equal((await sqlite.query({limit: 2})).items.length, 2);
 assert.equal((await sqlite.describe()).snapshot.kind, 'sqlite-generation');
+const hp=await sqlite.hierarchy.propose();
+assert.equal(hp.definition.version,1);
+assert.equal(typeof Object.values(hp.typeScores)[0].structureScore,'number');
+assert.ok((await sqlite.hierarchy.read({definition:hp.definition,includeScores:true})).items.length);
+assert.ok((await workspace.hierarchy.propose()).definition.nodes.length);
 assert.equal((await refreshSqliteIndex({indexPath: sqlitePath})).outcome, 'unchanged');
 await sqlite.close();
 const constrained=await openSqliteWorkspace({indexPath:process.argv[4],freshness:{mode:'indexed'}});
 const ownerType=await constrained.schema.describeType('Owner');
+assert.deepEqual(ownerType.annotations,{'bb:group':{id:'architecture'}});
+assert.deepEqual(ownerType.fields.find(f=>f.name==='labels').annotations,{});
+assert.deepEqual(ownerType.referencePaths.find(p=>p.path==='refinements.scope').annotations,{});
 assert.equal(ownerType.fields.find(f=>f.name==='labels').constraints.listElementsUnique,true);
 assert.equal((await constrained.schema.describeType('Choice')).recordConstraints[0].exactlyOneOf.length,2);
 assert.equal((await constrained.entities.get('owner')).item.properties.refinements[0].scope,'runtime');
@@ -132,6 +140,12 @@ const table=(await projected.query({type:'DatabaseObject',where:{name:{eq:'publi
 assert.equal(table.properties.definition.columns[0].data_type,'uuid');
 assert.equal((await projected.graph.neighbors([table.id],{relations:['foreign_keys.target']})).edges.length,1);
 await projected.close();
+const columns=await openSqliteWorkspace({indexPath:process.argv[6],freshness:{mode:'indexed'}});
+assert.deepEqual((await columns.entities.get('a')).item.properties.targets,['b']);
+assert.equal((await columns.entities.get('c')).item.properties.targets,undefined);
+assert.equal((await columns.graph.neighbors(['a'],{relations:['targets']})).edges.length,1);
+assert.deepEqual((await columns.schema.describeType('Thing')).fields.find(f=>f.name==='targets').annotations['lore:markdown_reference_column'],{heading:'## Calls',column:'Target'});
+await columns.close();
 console.log('sdk-ok');
 `,
       );
@@ -139,6 +153,14 @@ console.log('sdk-ok');
       await cp(join(repository, 'test/fixtures/record-constraints'), constrainedRoot, {
         recursive: true,
       });
+      const constrainedModel = join(constrainedRoot, 'model.yaml');
+      await writeFile(
+        constrainedModel,
+        (await readFile(constrainedModel, 'utf8')).replace(
+          '  Owner:\n',
+          "  Owner:\n    annotations:\n      'bb:group': {id: architecture}\n",
+        ),
+      );
       await writeFile(
         join(constrainedRoot, 'records.yaml'),
         "- {id: runtime, type: Runtime, name: Runtime}\n- id: owner\n  type: Owner\n  name: Owner\n  refinements: [{scope: '[[runtime]]', note: test}]\n  choice: {workload: work}\n",
@@ -166,10 +188,21 @@ console.log('sdk-ok');
         [bin, 'index', '--format', 'sqlite', '--out', sourcesSqlite, sourcesRoot],
         client,
       );
+      const columnsRoot = join(client, 'reference-columns');
+      await cp(join(repository, 'test/fixtures/reference-columns'), columnsRoot, {
+        recursive: true,
+      });
+      run(process.execPath, [bin, 'check', '--strict', columnsRoot], client);
+      const columnsSqlite = join(client, 'columns.sqlite');
+      run(
+        process.execPath,
+        [bin, 'index', '--format', 'sqlite', '--out', columnsSqlite, columnsRoot],
+        client,
+      );
       expect(
         run(
           process.execPath,
-          ['smoke.mjs', model, sqlitePath, constrainedSqlite, sourcesSqlite],
+          ['smoke.mjs', model, sqlitePath, constrainedSqlite, sourcesSqlite, columnsSqlite],
           client,
         ).trim(),
       ).toBe('sdk-ok');

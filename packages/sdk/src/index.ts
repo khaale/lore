@@ -70,6 +70,26 @@ export type {
   Workspace,
 } from './reader.js';
 export * from './ptc.js';
+export { HierarchyError } from './hierarchy.js';
+export type {
+  HierarchyReader,
+  HierarchyTypeScores,
+  HierarchyInstanceScores,
+  HierarchyDefinition,
+  HierarchyBranch,
+  HierarchyNodeDefinition,
+  HierarchyVia,
+  HierarchyStep,
+  HierarchyPlacementPolicy,
+  HierarchyBasis,
+  HierarchyQuantity,
+  HierarchyPlacementNode,
+  HierarchyEvaluation,
+  HierarchyProposalOptions,
+  HierarchyReadOptions,
+  HierarchyProposalResult,
+  HierarchyReadResult,
+} from './hierarchy.js';
 export { openSqliteWorkspace, SQLITE_FRESHNESS, SOURCE_FRESHNESS } from './sqlite-workspace.js';
 export type {
   IndexedSnapshotInfo,

@@ -63,6 +63,45 @@ expression; individual values still must satisfy value constraints. Nested paths
 such as `refinements.scope` are graph relation selectors. Array positions stay in
 source locations, not in relation names. Inline values remain properties of their
 owning entity, with resolved nested references projected as target IDs.
+
+## Organize the metamodel with annotations
+
+`schema.describeType()` exposes effective `annotations` on the type, each field
+and each reference path. These are detached mappings (`{}` when unannotated),
+available through filesystem, SQLite and PTC readers. For example, a model can use
+consumer-defined metadata to group types and classify relations:
+
+```yaml
+classes:
+  ApiOperation:
+    annotations:
+      bb:group: { id: interfaces, label: Interfaces, order: 20 }
+slots:
+  api:
+    range: Api
+    annotations:
+      bb:role: owner
+```
+
+```ts
+const operation = await workspace.schema.describeType('ApiOperation');
+console.log(operation.annotations['bb:group']);
+console.log(operation.fields.find((f) => f.name === 'api')?.annotations['bb:role']);
+console.log(operation.referencePaths?.map((p) => [p.path, p.annotations]));
+```
+
+Custom namespaces such as `bb:*` belong to the consumer; Lore does not interpret
+them as grouping, ownership or traversal instructions. Local annotation keys
+override inherited keys; each winning value replaces the whole value without
+deep merging. Other inherited keys remain. Nested paths such as
+`foreign_keys.target` carry the terminal `target` slot's annotations, independently
+of annotations on the containing `foreign_keys` field.
+
+`listTypes()` and `describe().types` remain compact summaries without annotations.
+Annotations are not copied onto entities or graph edges. Existing SQLite models
+already retain them; changing authored metadata follows the ordinary index
+rebuild/refresh lifecycle. This is detailed metadata discovery, not a complete
+LinkML schema export.
 Recursive inline schemas refer to their class vocabulary; the path catalog stops
 at a repeated class, while declared deeper paths can still be used as selectors.
 Class validation rules do not classify records. Use the existing designator or
@@ -367,3 +406,154 @@ pnpm sdk:example
 
 See `scripts/ptc-example.mjs` for two calls sharing retained context and returning
 limited collection and graph previews.
+
+## Candidate hierarchies
+
+`workspace.hierarchy.propose()` returns an editable version-1 `definition`, observed
+`typeTotals`, unpopulated `declaredOnly` types and computation coverage. It proposes
+strong observed reference axes, explicit context annotations and exact source
+location hypotheses, without a domain-name dictionary. Competing or partial axes
+remain `alternative` branches; they are not used for default placement. Source
+context and schema navigation organize a view, rather than asserting containment.
+The candidate is a starting point for review, not a semantic classification.
+
+```ts
+const proposal = await workspace.hierarchy.propose({ detail: 'diagnostic' });
+const definition = proposal.definition; // save or edit this JSON
+const roots = await workspace.hierarchy.read({ definition, limit: 20 });
+const children = await workspace.hierarchy.read({
+  definition,
+  parent: roots.items[0]!.ref,
+  limit: 20,
+});
+```
+
+The same methods exist on grouped readers and JSON PTC readers. Hierarchy bounds
+remain in effect inside PTC. Existing opener policies and result metadata apply;
+SQLite `indexed` mode reads the saved generation without checking sources. These
+methods never rebuild an index. There is no additional snapshot or session API.
+
+Definitions have `nodes`, `roots`, `branches`, optional `labels`, `unassigned` and
+`placements`. Nodes are `type`, navigation `group`, or explicit exact-scalar
+`property` groups. A type node includes exactly that observed type unless
+`includeSubtypes: true`. Branches point parent→child in the view, but their `via`
+path is evaluated child→parent with explicit `ownerType`, `field`, `direction`
+and optional `targetTypes`. Paths have one to four reference steps and deduplicate
+terminal endpoints. A `source` path uses exact directory IDs or a unique entity
+at the same document root; it remains a source-context hypothesis. Self branches
+require `recursive: true`. A type may occur below several parent types.
+
+To enable an alternative, edit its `alternative` flag and review other active
+branches. Invalid versions, fields, selectors, keys and undeclared recursion fail
+with `HierarchyError` and a definition `path` before instance enumeration. Label
+selectors are declared single scalar fields; they use ID fallback, without
+name/title guessing or narrative reads. Labels exceeding 256 UTF-8 bytes are
+truncated with `label-truncated`. Property groups preserve exact typed keys
+(string `"1"` differs from number `1`), with a separate missing/null group.
+
+`read` pages the root or one opaque placement `ref`. Reuse returned refs, not entity
+IDs, as `parent`. Refs belong to the edited definition; normal continuations also
+validate the reader identity. Nodes distinguish real entities from virtual groups,
+carry `basis` and `branchRef`, and report `expandable: yes|no|unknown`.
+`directChildren` counts immediate placement occurrences, not distinct descendants
+or the global type total. Its status is `exact`, `lower-bound` or `unknown`.
+Page `coverage`, `compute` coverage and whole-definition `placement` completeness
+are separate. Unassigned entries are grouped by default; `omit` and `error` are
+explicit policies. Recursive cycles and depth exhaustion are flagged.
+
+Optional `placements` specify a resource branch, selected backbone branches and
+consumer path. LCA placement checks the whole declared forest, deduplicates
+consumers and includes existing parents only with `includeDirectParent: true`.
+Cycles, conflicting parents, disconnected consumers or ambiguous destination
+occurrences defer placement; the response reports this instead of choosing an
+arbitrary ancestor. This is display placement and never rewrites assertions.
+
+Default pages contain 20 items (maximum 100). Input is capped at 100,000 entities
+and 2,000,000 logical link presentations, definitions at 500 entries per array,
+paths at four hops, placement depth at 32 and computation at 1,000,000
+visited items. Smaller `workBudget` is supported. Exhaustion fails explicitly
+with `HIERARCHY_LIMIT`, never a silently exact partial analysis. Metadata analysis
+is bounded whole-scope work. Within one `readSnapshot` callback, repeated
+`hierarchy.read` calls reuse one analysis/placement plan for the same validated
+definition and work budget; individual scores are computed lazily once. Changing
+the definition or budget evicts the plan, and a failed read discards it. Callback
+completion or failure releases the cache. Independent workspace calls do not
+share it. This is not a constant-time child lookup or whole-corpus export:
+children, labels and response pages still require work. `compute.examined` includes
+retained analysis work; it is not a measurement of work repeated on that page.
+SQLite profiling reads identity/type/source and
+logical link columns; properties are hydrated only for requested labels/groups.
+No narrative is needed.
+
+Compose existing operations rather than expanding the hierarchy definition into
+a query language:
+
+- Tables: `schema.describeType` → typed `query({ select, where, limit })` →
+  `entities.getMany` for selected rows. A page is not a global denominator.
+- Navigation: `hierarchy.propose` → review/save definition → `hierarchy.read`
+  children → hydrate real entity IDs with `getMany`.
+- Scene: read bounded visible placements → discard virtual IDs →
+  `graph.subgraph(realIds, bounds)` for canonical crosslinks. It does not provide
+  complete inter-branch quotient counts or all hidden assertions.
+
+CLI uses the same saved-index boundary:
+
+```sh
+lore hierarchy propose --format sqlite --index /path/index.sqlite --json > hierarchy.json
+lore hierarchy read --format sqlite --index /path/index.sqlite --definition hierarchy.json --json
+```
+
+`--definition` accepts the bare definition or a proposal envelope containing
+`definition`; a read response is neither. JSON reads also accept `--root`,
+`--schema` and `--ignore` for their existing strict saved-index checks. SQLite uses
+its indexed model; refresh explicitly with the existing refresh command if needed.
+Without `--json`, propose prints a compact type tree with global type totals;
+read prints labels, immediate child counts and opaque refs. `--detail diagnostic`
+adds eligible/zero/one/many branch metrics without changing the candidate.
+
+`proposal.typeScores` gives independent `structureScore` and `connectivityScore`
+for every populated candidate type. Both are normalized 0..1 within that proposal;
+they never filter nodes, select top-K or alter placement. Structural diversity uses
+unique descendant types with distance decay 0.65. Connectivity uses unique observed
+neighbor types weighted by distance outside immediate hierarchy adjacency. See
+[usage guidance](../skills/lore-usage/references/scripts.md#candidate-hierarchy-navigation)
+for the exact formulas and interpretation limits. Scores describe the returned
+candidate, not a subsequently edited definition or semantic criticality.
+
+Individual entity scores are optional:
+
+```ts
+const page = await workspace.hierarchy.read({
+  definition,
+  parent,
+  includeScores: true,
+});
+for (const node of page.items) {
+  if (node.kind === 'entity') console.log(node.entityId, node.scores);
+}
+```
+
+Without `includeScores`, `scores` is absent and no individual-score computation
+runs. Virtual groups never receive scores. Structure uses actual resolved entity
+placements after selected LCA, counts each different descendant type once and uses
+its shortest distance with decay 0.65. Connectivity uses the entity's own distinct
+observed neighbor types and their separation in the selected **type** hierarchy;
+it does not compute entity geodesics or detect bridges between two instances of
+the same type. Only selected-scope endpoints participate. Components are independently
+normalized among all selected entities of the same actual type, including unassigned
+members; a page is not the denominator. Repeated occurrences have equal scores.
+
+Scores do not affect order, refs or pagination. Editing the definition can change
+them. Placement coverage/deferred flags still apply: these are hints for the
+resolved view, not confidence or criticality. Calculation adds bounded whole-scope
+work and can raise `HIERARCHY_LIMIT`; there is no silent zero fallback. Pages
+containing only virtual groups skip this extra work. The CLI opt-in is
+`lore hierarchy read ... --scores`, for both text and JSON output.
+
+Authored models may use `lore:markdown_reference_column: {heading, column}` on
+multivalued reference slots to read targets from Markdown tables into their
+containing records. Schema edits require the ordinary rebuild; no SDK API/index-format
+change is needed. Existing discovery exposes the annotation, entity reads expose
+the reference list, and graph operations expose its typed links. Other columns
+remain narrative, without implied edge attributes. See the
+[authoring contract](../skills/lore-modeling/references/file-formats.md#reference-column-on-the-containing-record).

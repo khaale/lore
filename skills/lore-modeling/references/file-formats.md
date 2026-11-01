@@ -324,3 +324,33 @@ Validate with `lore check --strict <root>`, then rebuild with `lore index <root>
 Diagnostics can locate a file, record, property, section or table cell depending
 on the parser and representation. An error-free check does not imply that every
 untyped document became a record; inspect record counts and representative cards.
+
+### Reference column on the containing record
+
+To read targets from a table without creating row entities, annotate a declared
+multivalued reference slot:
+
+```yaml
+integrates_with:
+  range: RuntimeEntity
+  multivalued: true
+  annotations:
+    'lore:markdown_reference_column':
+      heading: '### Integrations'
+      column: 'Target'
+```
+
+Exactly `heading` and `column` are required. Heading syntax is the same as a
+section selector; column labels match after trimming/collapsing whitespace.
+The annotation requires a multivalued reference and cannot share its slot with
+`lore:markdown_selectors`. Each nonempty cell supplies one exact ID or complete
+WikiLink, preserving row order and cell provenance. Blank cells are skipped;
+ordinary target, unique-value and cardinality validation still applies.
+
+A missing heading or section without pipe tables supplies no value and retains
+status prose. An explicitly empty selected table supplies `[]`. With tables
+present, a missing/duplicate selected header, multiple matching tables, malformed
+table, competing property or another field claiming the same column is an error.
+Unselected columns and prose remain narrative. Only selected cell links are
+claimed as that reference field. This does not parse protocol strings, construct
+relation objects, or attach other columns as edge attributes.

@@ -1,0 +1,5 @@
+- [x] 1. Validate the annotation and materialize exact reference cells with provenance, ownership, narrative and explicit error/empty semantics.
+- [x] 2. Add regression and packed-consumer checks; document the authoring contract and root changeset.
+- [x] 3. Strictly rebuild separate full-SA JSON/SQLite candidates; verify entity/triple parity and all101 integrations with no source-card writes.
+- [x] 4. Run check/CLI/strict OpenSpec/diff gates; prepare a fresh public tarball and coordinate BB adoption.
+- [x] 5. Re-run the self-structure-weighted score experiment on the actual rebuilt graph and report interpretable results and limitations.
