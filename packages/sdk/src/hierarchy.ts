@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { digest } from './stable-json.js';
 import { isAbsolute, resolve } from 'node:path';
 import {
   HierarchyComputation,
@@ -12,7 +12,7 @@ import {
   type HierarchyReadOptions,
   type HierarchyPage,
 } from '@khaale/lore-graph';
-import { canonicalGraphView, SdkError, type ReadSource, type SnapshotInfo } from './reader.js';
+import { getGraphView, SdkError, type ReadSource, type SnapshotInfo } from './reader.js';
 
 export { HierarchyError };
 export type {
@@ -37,20 +37,6 @@ export interface HierarchyReader {
   propose(options?: HierarchyProposalOptions): Promise<HierarchyProposalResult>;
   read(options: HierarchyReadOptions): Promise<HierarchyReadResult>;
 }
-function normalized(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(normalized);
-  if (value && typeof value === 'object')
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([k, v]) => [k, normalized(v)]),
-    );
-  return value;
-}
-const digest = (value: unknown) =>
-  createHash('sha256')
-    .update(JSON.stringify(normalized(value)))
-    .digest('hex');
 export function jsonHierarchyInput(source: ReadSource): HierarchyInput {
   return {
     schema: source.schema,
@@ -67,7 +53,7 @@ export function jsonHierarchyInput(source: ReadSource): HierarchyInput {
       }
     },
     *links() {
-      for (const e of canonicalGraphView(source).edges)
+      for (const e of getGraphView(source).edges)
         for (const p of e.presentations) yield { from: p.from, relation: p.relation, to: p.to };
     },
     property: (id, field) => source.entitiesById.get(id)?.properties[field],

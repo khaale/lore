@@ -1,3 +1,4 @@
+import { isRuntimeSubclass } from '@khaale/lore-schema';
 import { inlineClasses } from '@khaale/lore-schema';
 import { relative, resolve, dirname, basename, extname, isAbsolute } from 'node:path';
 import type {
@@ -422,7 +423,7 @@ function validate(
       ) {
         if (!references) return candidate.length > 0;
         const id = resolveReference(candidate);
-        return !!id && runtimeSubclass(ir, references.artifacts[id]!.kind, range);
+        return !!id && isRuntimeSubclass(ir, references.artifacts[id]!.kind, range);
       }
       if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return false;
       const start = result.length;
@@ -437,7 +438,7 @@ function validate(
     exprOk(value, expression, ir, (item, range) => {
       if (!references || typeof item !== 'string' || !ir.classes[range]) return false;
       const target = resolveReference(item);
-      return !!target && runtimeSubclass(ir, references.artifacts[target]!.kind, range);
+      return !!target && isRuntimeSubclass(ir, references.artifacts[target]!.kind, range);
     });
   const hasScalarAlternative = (e: SlotExpr): boolean =>
     !!(e.range && !ir.classes[e.range]) ||
@@ -584,7 +585,7 @@ function validate(
           }
           const compatible =
             (!ir.classes[slotDefinition.range] ||
-              runtimeSubclass(ir, references.artifacts[target]!.kind, slotDefinition.range)) &&
+              isRuntimeSubclass(ir, references.artifacts[target]!.kind, slotDefinition.range)) &&
             (!slotDefinition.anyOf.length ||
               slotDefinition.anyOf.some((e) => referenceExpressionPasses(item, e))) &&
             slotDefinition.allOf.every((e) => referenceExpressionPasses(item, e)) &&
@@ -2252,23 +2253,7 @@ function expandEnrichedCandidates(
   }
   return { documents, manifests };
 }
-function runtimeSubclass(
-  ir: RuntimeSchemaIR,
-  child: string,
-  parent: string,
-  seen = new Set<string>(),
-): boolean {
-  if (child === parent) return true;
-  if (seen.has(child)) return false;
-  seen.add(child);
-  const c = ir.classes[child];
-  return Boolean(
-    c &&
-    [c.parent, ...c.mixins]
-      .filter((x): x is string => Boolean(x))
-      .some((x) => runtimeSubclass(ir, x, parent, seen)),
-  );
-}
+
 export function buildGraph(candidates: Candidate[], options: BuildOptions): BuildResult {
   const { compiled, root } = options;
   const ir = compiled.ir;
@@ -2545,7 +2530,7 @@ export function buildGraph(candidates: Candidate[], options: BuildOptions): Buil
     for (const key of Object.values(cls.uniqueKeys)) {
       const seen = new Map<string, string>();
       for (const artifact of Object.values(index.artifacts)) {
-        if (!runtimeSubclass(ir, artifact.kind, cls.name)) continue;
+        if (!isRuntimeSubclass(ir, artifact.kind, cls.name)) continue;
         const values = key.slots.map((slotName) => artifact.data[slotName]);
         if (values.some((value) => value === undefined)) continue;
         const composite = values.map((value) => String(value)).join('\x1f');

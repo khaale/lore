@@ -1,3 +1,4 @@
+export { isRuntimeSubclass } from './runtime.js';
 import { createHash } from 'node:crypto';
 import { readFile, access } from 'node:fs/promises';
 import {

@@ -1,3 +1,4 @@
+import { isRuntimeSubclass } from '@khaale/lore-schema';
 import type { RuntimeClass, RuntimeSchemaIR, RuntimeSlot, SlotExpr } from '@khaale/lore-schema';
 import {
   canonicalSemanticValue,
@@ -107,24 +108,6 @@ function freeze<T>(value: T): T {
   Object.freeze(value);
   for (const child of Object.values(value as Record<string, unknown>)) freeze(child);
   return value;
-}
-
-function runtimeSubclass(
-  ir: RuntimeSchemaIR,
-  child: string,
-  parent: string,
-  seen = new Set<string>(),
-): boolean {
-  if (child === parent) return true;
-  if (seen.has(child)) return false;
-  seen.add(child);
-  const runtimeClass = ir.classes[child];
-  return Boolean(
-    runtimeClass &&
-    [runtimeClass.parent, ...runtimeClass.mixins]
-      .filter((name): name is string => Boolean(name))
-      .some((name) => runtimeSubclass(ir, name, parent, seen)),
-  );
 }
 
 function resolveClass(ir: RuntimeSchemaIR, identity: string): RuntimeClass | undefined {
@@ -410,7 +393,7 @@ export class SemanticReadSession {
     }
     const entities = this.entities
       .filter((entity) => {
-        if (selectedClass && !runtimeSubclass(this.schema, entity.kind, selectedClass.name))
+        if (selectedClass && !isRuntimeSubclass(this.schema, entity.kind, selectedClass.name))
           return false;
         const runtimeClass = this.schema.classes[entity.kind];
         if (!runtimeClass) return false;

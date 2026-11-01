@@ -563,6 +563,22 @@ async function runSqlite(a: Args): Promise<void> {
   await new PollWatcher(a.poll, a.debounce).run(watchOptions, rebuild);
 }
 
+/** Keep one portable JSON representation for both index and watch publication. */
+function portableIndex(index: IndexV2): IndexV2 {
+  return {
+    ...index,
+    edges: index.edges?.length ? index.edges : null,
+    diagnostics: index.diagnostics?.length ? index.diagnostics : null,
+    artifacts: Object.fromEntries(
+      Object.entries(index.artifacts).map(([id, artifact]) => {
+        if (artifact.links?.length) return [id, artifact];
+        const { links: _links, ...withoutLinks } = artifact;
+        return [id, withoutLinks];
+      }),
+    ),
+  };
+}
+
 async function main() {
   const rawArgs = process.argv.slice(2);
   try {
@@ -643,23 +659,7 @@ async function main() {
         throw new Error('validation failed; last-known-good index was not replaced');
       }
       printDiagnostics(report.diagnostics, a.json);
-      const portable: IndexV2 = {
-        ...r.index,
-        edges: r.index.edges?.length ? r.index.edges : null,
-        diagnostics: r.index.diagnostics?.length ? r.index.diagnostics : null,
-        artifacts: Object.fromEntries(
-          Object.entries(r.index.artifacts).map(([id, artifact]) => [
-            id,
-            artifact.links?.length
-              ? artifact
-              : (() => {
-                  const { links: _links, ...withoutLinks } = artifact;
-                  return withoutLinks;
-                })(),
-          ]),
-        ),
-      };
-      await publishIndex(a.index, portable);
+      await publishIndex(a.index, portableIndex(r.index));
       console.log(
         `indexed: ${report.summary.artifacts} artifacts, ${report.summary.edges} edges -> ${a.index}`,
       );
@@ -750,23 +750,7 @@ async function main() {
             ];
           const report = checkReport(r.index);
           if (!report.summary.errors) {
-            const portable: IndexV2 = {
-              ...r.index,
-              edges: r.index.edges?.length ? r.index.edges : null,
-              diagnostics: r.index.diagnostics?.length ? r.index.diagnostics : null,
-              artifacts: Object.fromEntries(
-                Object.entries(r.index.artifacts).map(([id, artifact]) => [
-                  id,
-                  artifact.links?.length
-                    ? artifact
-                    : (() => {
-                        const { links: _links, ...withoutLinks } = artifact;
-                        return withoutLinks;
-                      })(),
-                ]),
-              ),
-            };
-            await publishIndex(a.index, portable);
+            await publishIndex(a.index, portableIndex(r.index));
             console.log(`indexed ${Object.keys(r.index.artifacts).length} artifacts`);
           } else
             console.log(

@@ -1,3 +1,4 @@
+import { isRuntimeSubclass } from '@khaale/lore-schema';
 // Private computation boundary. Never re-export this package from @khaale/lore.
 export * from './hierarchy.js';
 import { referencePaths, type RuntimeSchemaIR } from '@khaale/lore-schema';
@@ -59,21 +60,7 @@ const compare = (a: string, b: string) => a.localeCompare(b) || (a < b ? -1 : a 
 const fail = (message: string): never => {
   throw new AnalysisError(ANALYSIS_ERROR.INVALID, message);
 };
-function descendants(
-  schema: RuntimeSchemaIR,
-  child: string,
-  parent: string,
-  seen = new Set<string>(),
-): boolean {
-  if (child === parent) return true;
-  if (seen.has(child)) return false;
-  seen.add(child);
-  const c = schema.classes[child];
-  return (
-    !!c &&
-    [c.parent, ...c.mixins].some((p) => p !== undefined && descendants(schema, p, parent, seen))
-  );
-}
+
 function projection(input: AnalysisInput, options: Projection) {
   const classes = Object.values(input.schema.classes);
   const normalize = (
@@ -144,7 +131,7 @@ class Topology {
     const nodes: InputIdentity[] = [],
       positions = new Map<string | number, number>();
     for (const node of input.nodes()) {
-      if (scope.types && !scope.types.some((t) => descendants(input.schema, node.type, t)))
+      if (scope.types && !scope.types.some((t) => isRuntimeSubclass(input.schema, node.type, t)))
         continue;
       const key = node.key ?? node.id;
       if (positions.has(key)) fail(`Duplicate analysis identity ${node.id}`);

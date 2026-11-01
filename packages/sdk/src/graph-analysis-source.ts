@@ -2,7 +2,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { AnalysisError, ANALYSIS_ERROR, type AnalysisInput } from '@khaale/lore-graph';
 import type { RuntimeSchemaIR } from '@khaale/lore-schema';
-import { canonicalGraphView, type ReadSource, type GraphView } from './reader.js';
+import { getGraphView, type ReadSource, type GraphView } from './reader.js';
 import { readSqliteMetadata } from './sqlite-index.js';
 
 /** Caller owns the loaded JSON source and its existing freshness/lifetime boundaries. */
@@ -21,7 +21,7 @@ export function jsonAnalysisInput(source: ReadSource, check: () => void): Analys
     },
     *edges() {
       check();
-      for (const edge of (graph ??= canonicalGraphView(source)).edges)
+      for (const edge of (graph ??= getGraphView(source)).edges)
         yield { from: edge.from, relation: edge.relation, to: edge.to };
     },
   };

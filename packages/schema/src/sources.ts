@@ -1,3 +1,4 @@
+import { isRuntimeSubclass } from './runtime.js';
 import type { RuntimeSchemaIR, RuntimeSlot, SlotExpr } from './index.js';
 
 export const SOURCES_ANNOTATION = 'lore:sources';
@@ -160,11 +161,6 @@ export function compileSources(value: unknown, ir: RuntimeSchemaIR): SourcePlan[
         keyCount: list(rule.key, `${sourcePath}.${ruleName}.key`, true).length,
       });
     }
-    const subclass = (child: string, parent: string): boolean =>
-      child === parent ||
-      [ir.classes[child]?.parent, ...(ir.classes[child]?.mixins ?? [])].some(
-        (ancestor) => !!ancestor && subclass(ancestor, parent),
-      );
     const classRanges = (expr: SlotExpr): string[] => [
       ...(expr.range && Object.hasOwn(ir.classes, expr.range) ? [expr.range] : []),
       ...[expr.anyOf, expr.allOf, expr.exactlyOneOf].flatMap((group) =>
@@ -314,8 +310,10 @@ export function compileSources(value: unknown, ir: RuntimeSchemaIR): SourcePlan[
           (expected.mode !== 'reference' ||
             expected.multivalued !== (op === 'pointer_refs') ||
             (expected.explicitRange && Object.hasOwn(ir.classes, expected.range)
-              ? !subclass(target!.class, expected.range)
-              : !classRanges(expected).some((range) => subclass(target!.class, range))))
+              ? !isRuntimeSubclass(ir, target!.class, expected.range)
+              : !classRanges(expected).some((range) =>
+                  isRuntimeSubclass(ir, target!.class, range),
+                )))
         )
           fail(path, 'reference is incompatible with the target field');
         if (op === 'ref') {

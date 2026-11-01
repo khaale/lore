@@ -244,3 +244,27 @@ describe('schema public contracts', () => {
     ).toThrow(/incompatible range refinements/);
   });
 });
+
+it('shares effective ancestry across mixins, diamonds and cyclic runtime input', async () => {
+  const { isRuntimeSubclass } = await import('./index.js');
+  const schema = normalizeSchema({
+    slots: {},
+    types: {},
+    enums: {},
+    classes: {
+      Base: {},
+      Trait: { mixin: true },
+      Left: { isA: 'Base', mixins: ['Trait'] },
+      Right: { isA: 'Base' },
+      Leaf: { isA: 'Left', mixins: ['Right'] },
+      Unrelated: {},
+    },
+  });
+  expect(isRuntimeSubclass(schema, 'Leaf', 'Trait')).toBe(true);
+  expect(isRuntimeSubclass(schema, 'Leaf', 'Base')).toBe(true);
+  expect(isRuntimeSubclass(schema, 'Base', 'Leaf')).toBe(false);
+  expect(isRuntimeSubclass(schema, 'Leaf', 'Unrelated')).toBe(false);
+  schema.classes.Base!.parent = 'Leaf';
+  expect(isRuntimeSubclass(schema, 'Leaf', 'Unrelated')).toBe(false);
+  expect(isRuntimeSubclass(schema, 'Leaf', 'Trait')).toBe(true);
+});

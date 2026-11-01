@@ -1,7 +1,8 @@
+import { stableValue, stableJson, digest } from './stable-json.js';
+import { isRuntimeSubclass } from '@khaale/lore-schema';
 import { referencePaths, referenceSlot } from '@khaale/lore-schema';
 import { HierarchyReaderImpl, type HierarchyReader } from './hierarchy.js';
 import type { HierarchyInput } from '@khaale/lore-graph';
-import { createHash } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import {
@@ -489,19 +490,6 @@ const isScalar = (value: unknown): value is ScalarValue =>
   !(typeof value === 'number' && !Number.isFinite(value));
 const clone = <T>(value: T): T => structuredClone(value);
 const compareStrings = (left: string, right: string): number => left.localeCompare(right);
-function stableValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stableValue);
-  if (isRecord(value))
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([left], [right]) => compareStrings(left, right))
-        .map(([key, child]) => [key, stableValue(child)]),
-    );
-  return value;
-}
-const stableJson = (value: unknown): string => JSON.stringify(stableValue(value));
-const digest = (value: unknown): string =>
-  createHash('sha256').update(stableJson(value)).digest('hex');
 const encodeToken = (value: unknown): Continuation => {
   const payload = stableJson(value);
   const envelope = `${Buffer.from(payload).toString('base64url')}.${digest(value)}`;
@@ -648,23 +636,7 @@ function resolveClass(schema: RuntimeSchemaIR, identity: string): RuntimeClass |
     (runtimeClass) => runtimeClass.name === identity || runtimeClass.typeId === identity,
   );
 }
-function isSubclass(
-  schema: RuntimeSchemaIR,
-  child: string,
-  parent: string,
-  seen = new Set<string>(),
-): boolean {
-  if (child === parent) return true;
-  if (seen.has(child)) return false;
-  seen.add(child);
-  const runtimeClass = schema.classes[child];
-  return Boolean(
-    runtimeClass &&
-    [runtimeClass.parent, ...runtimeClass.mixins]
-      .filter((name): name is string => Boolean(name))
-      .some((name) => isSubclass(schema, name, parent, seen)),
-  );
-}
+
 function slotExpressionDescription(e: SlotExpr): SlotConstraintExpression {
   const value = Object.fromEntries(
     Object.entries(e).filter(([key, value]) => key !== 'extra' && value !== undefined),
@@ -698,7 +670,8 @@ function fieldDescription(schema: RuntimeSchemaIR, slot: RuntimeSlot): FieldDesc
     values.includes(true) ? true : values.includes(undefined) ? undefined : false;
   const possible = (type: string, e: SlotExpr): Match => {
     const conditions: Match[] = [];
-    if (e.range) conditions.push(!!schema.classes[e.range] && isSubclass(schema, type, e.range));
+    if (e.range)
+      conditions.push(!!schema.classes[e.range] && isRuntimeSubclass(schema, type, e.range));
     if (e.valuePresence === 'ABSENT') conditions.push(false);
     if (e.pattern !== undefined || e.equalsString !== undefined || e.equalsStringIn !== undefined)
       conditions.push(undefined);
@@ -721,7 +694,7 @@ function fieldDescription(schema: RuntimeSchemaIR, slot: RuntimeSlot): FieldDesc
       ? Object.values(schema.classes)
           .filter(
             (c) =>
-              (!schema.classes[slot.range] || isSubclass(schema, c.name, slot.range)) &&
+              (!schema.classes[slot.range] || isRuntimeSubclass(schema, c.name, slot.range)) &&
               possible(c.name, {
                 anyOf: slot.anyOf,
                 allOf: slot.allOf,
@@ -993,7 +966,7 @@ async function openFilesystemSource(options: FilesystemWorkspaceOptions): Promis
           schemaHash: hash,
         },
       );
-    const semantic = snapshotFromBuildResult({ index, schema: compiled.ir });
+    const projection = projectionSource(index, compiled.ir);
     const dependencies = await discoverSchemaDependencies(schemaPath);
     const scanOptions = filesystemSourceOptions(
       { ...options, ignorePath },
@@ -1005,24 +978,11 @@ async function openFilesystemSource(options: FilesystemWorkspaceOptions): Promis
     const stamps = [...(await filesystemSnapshot(scanOptions)), await fileStamp(indexPath)].sort(
       (a, b) => compareStrings(a.path, b.path),
     );
-    const entities = Object.values(semantic.entities).map((entity) => ({
-      ...entity,
-      ...(index.artifacts[entity.id]?.body === undefined
-        ? {}
-        : { narrative: index.artifacts[entity.id]!.body }),
-    }));
     const stateKey = digest({ hash, stamps });
     const state = buildState('filesystem', hash, stateKey);
     const source: ReadSource = {
+      ...projection,
       root,
-      authority: 'filesystem',
-      schema: compiled.ir,
-      schemaIdentity: schemaIdentity(compiled.ir, hash),
-      entities,
-      entitiesById: new Map(entities.map((entity) => [entity.id, entity])),
-      relationsByEntity: indexEntityRelations(semantic.relations),
-      relations: semantic.relations,
-      index,
       state,
       maxPageSize: options.maxPageSize ?? SDK_LIMITS.maxPageSize,
       maxScanBudget: options.maxScanBudget ?? SDK_LIMITS.maxScanBudget,
@@ -1064,7 +1024,7 @@ function matchesType(
         !schema.classes[entity.kind]!.abstract &&
         !schema.classes[entity.kind]!.mixin,
       )
-    : isSubclass(schema, entity.kind, selected.name);
+    : isRuntimeSubclass(schema, entity.kind, selected.name);
 }
 function scalarValid(value: ScalarValue, slot: RuntimeSlot, schema: RuntimeSchemaIR): boolean {
   if (slot.mode === 'reference') return typeof value === 'string';
@@ -1651,7 +1611,7 @@ function graphTypeVisible(
 ): boolean {
   return (
     nodeTypes === undefined ||
-    nodeTypes.some((runtimeClass) => isSubclass(schema, entity.kind, runtimeClass.name))
+    nodeTypes.some((runtimeClass) => isRuntimeSubclass(schema, entity.kind, runtimeClass.name))
   );
 }
 
@@ -1879,14 +1839,17 @@ function graphInputIds(input: GraphInput): string[] {
 
 const graphViews = new WeakMap<IndexV2, GraphView>();
 
+/** Reuse an existing canonical view without extending its retention policy.
+ * Ordinary graph reads own the JSON cache; hierarchy-only reads keep their
+ * topology in the callback-scoped plan rather than retaining another full view. */
+export function getGraphView(source: ReadSource): GraphView {
+  return source.graphView?.() ?? graphViews.get(source.index) ?? canonicalGraphView(source);
+}
+
 class GraphReaderImpl implements GraphReader {
   private get view(): GraphView {
-    if (this.source.graphView) return this.source.graphView();
-    let view = graphViews.get(this.source.index);
-    if (!view) {
-      view = canonicalGraphView(this.source);
-      graphViews.set(this.source.index, view);
-    }
+    const view = getGraphView(this.source);
+    if (!this.source.graphView) graphViews.set(this.source.index, view);
     return view;
   }
   constructor(
@@ -2199,7 +2162,9 @@ function searchSource(source: ReadSource, options: SearchOptions, complete = fal
   const scan = sourceScan(source, position, limit, scanBudget, (entity) => {
     if (
       classes &&
-      !classes.some((runtimeClass) => isSubclass(source.schema, entity.kind, runtimeClass.name))
+      !classes.some((runtimeClass) =>
+        isRuntimeSubclass(source.schema, entity.kind, runtimeClass.name),
+      )
     )
       return undefined;
     const values: Array<{

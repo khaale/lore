@@ -212,6 +212,19 @@ pnpm check
 pnpm test:cli
 ```
 
+Optional duplicate-code review (downloads the analyzer to the package-manager cache;
+adds no project dependency):
+
+```sh
+pnpm dlx jscpd@4 --min-lines 10 --min-tokens 100 --max-lines 10000 --max-size 1mb \
+  --ignore '**/*.test.ts,**/dist/**,**/node_modules/**' \
+  --reporters console,json --output _tmp/duplication packages/*/src apps/*/src
+```
+
+Review the reported blocks before extracting helpers. Similar behavior with different
+names can escape token matching, while intentional adapter repetition can be harmless.
+This is an advisory local check, not a blocking CI threshold.
+
 For storage/performance work, use the seeded [SQLite benchmark corpus and baseline](scripts/benchmarks/README.md).
 
 ## Agent skills
