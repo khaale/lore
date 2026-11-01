@@ -13,7 +13,7 @@ const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
-async function fixture() {
+async function fixture(sharedByOwner = true) {
   const root = await mkdtemp(join(tmpdir(), 'lore-hierarchy-'));
   roots.push(root);
   const schemaPath = join(root, '.lore.yaml');
@@ -49,7 +49,7 @@ classes:
   await writeFile(
     file,
     `- {id: r, type: Root, label: Root}
-- {id: u1, type: Unit, label: One, parent: r, assets: [s]}
+- {id: u1, type: Unit, label: One, parent: r, assets: ${sharedByOwner ? '[s]' : '[]'}}
 - {id: u2, type: Unit, label: Two, parent: r, assets: [s]}
 - {id: s, type: Resource, label: Shared, owner: u1, group: a}
 - {id: orphan, type: Resource, label: Unassigned}
@@ -440,6 +440,42 @@ it('reuses one scoped plan with lazy scores, eviction, budgets and detached resu
     expect(spy.mock.calls.length).toBe(6);
   } finally {
     spy.mockRestore();
+    await sql.close();
+  }
+});
+
+it('includes the direct owner before deciding whether a sole consumer requires LCA placement', async () => {
+  const f = await fixture(false),
+    json = await openFilesystemWorkspace(f),
+    sql = await openSqliteWorkspace({ indexPath: f.sqlitePath, freshness: { mode: 'indexed' } });
+  try {
+    for (const w of [json, sql]) {
+      const d = definition();
+      d.placements = [
+        {
+          branch: 'us',
+          backbone: ['ru'],
+          consumers: [{ ownerType: 'Unit', field: 'assets', direction: 'in' }],
+          includeDirectParent: true,
+        },
+      ];
+      const root = await w.hierarchy.read({ definition: d });
+      const children = await w.hierarchy.read({
+        definition: d,
+        parent: root.items.find((n) => n.entityId === 'r')!.ref,
+      });
+      const resource = children.items.find((n) => n.entityId === 's');
+      expect(resource?.basis).toBe('derived-placement');
+      expect(resource?.flags).toContain('lca-placement');
+      expect(children.placement.deferred).toBe(0);
+      const ownerChildren = await w.hierarchy.read({
+        definition: d,
+        parent: children.items.find((n) => n.entityId === 'u1')!.ref,
+      });
+      expect(ownerChildren.items.some((n) => n.entityId === 's')).toBe(false);
+      expect((await w.entities.get('s', { select: ['owner'] })).item.properties.owner).toBe('u1');
+    }
+  } finally {
     await sql.close();
   }
 });

@@ -1059,7 +1059,9 @@ export class HierarchyPlan {
                 queue.push(child);
               }
             }
-        for (const e of computation.population(n.type, n.includeSubtypes ?? false))
+        const population = computation.population(n.type, n.includeSubtypes ?? false);
+        computation.tick(population.length);
+        for (const e of population)
           if (!seen.has(e.id))
             this.unassigned.push({
               key,
@@ -1073,7 +1075,9 @@ export class HierarchyPlan {
       const incoming = definition.branches.filter(
         (b) => !b.alternative && b.child === key && this.maps.has(b.key),
       );
-      for (const entity of computation.population(n.type, n.includeSubtypes ?? false)) {
+      const population = computation.population(n.type, n.includeSubtypes ?? false);
+      computation.tick(population.length);
+      for (const entity of population) {
         if (
           incoming.some((b) => (this.maps.get(b.key)?.get(entity.id)?.size ?? 0) > 0) ||
           derivedIds.has(JSON.stringify([key, entity.id]))
@@ -1149,10 +1153,10 @@ export class HierarchyPlan {
         }
     for (const [id, ps] of original) {
       const consumers = c.follow(id, policy.consumers);
-      if (consumers.size <= 1 && ps.size) continue;
       if (!consumers.size) continue;
       const ids = new Set(consumers);
       if (policy.includeDirectParent) ps.forEach((p) => ids.add(p));
+      if (ids.size <= 1 && ps.size) continue;
       const paths = valid ? [...ids].map(ancestors) : [];
       const first = paths[0];
       const common =
@@ -1296,8 +1300,10 @@ export class HierarchyPlan {
     const recursive = this.definition.branches.filter(
       (b) => !b.alternative && b.recursive && b.child === n.key && b.parent === n.key,
     );
-    return this.computation
-      .population(n.type, n.includeSubtypes ?? false)
+    const population = this.computation.population(n.type, n.includeSubtypes ?? false);
+    // Charge before allocating occurrences, including repeated type placements.
+    this.computation.tick(population.length);
+    return population
       .filter(
         (e) => !entry || !recursive.some((b) => (this.maps.get(b.key)?.get(e.id)?.size ?? 0) > 0),
       )
@@ -1332,12 +1338,14 @@ export class HierarchyPlan {
   private entry(key: string): RawPlacement[] {
     const n = this.nodes.get(key)!;
     if (n.kind === 'type') return this.population(n, true);
+    this.computation.tick();
     return [{ key, basis: n.kind === 'property' ? 'property' : n.basis, label: n.label ?? n.key }];
   }
   children(ref?: PlacementRef): RawPlacement[] {
     if (!ref) {
       const rows = this.definition.roots.flatMap((k) => this.entry(k));
-      if (this.unassigned.length && this.definition.unassigned !== 'omit')
+      if (this.unassigned.length && this.definition.unassigned !== 'omit') {
+        this.computation.tick();
         rows.push({
           key: '',
           unassigned: true,
@@ -1345,6 +1353,7 @@ export class HierarchyPlan {
           basis: 'derived-placement',
           flags: ['unassigned'],
         });
+      }
       return rows;
     }
     if (ref.definition !== this.definitionKey)
@@ -1352,7 +1361,10 @@ export class HierarchyPlan {
         'INVALID_HIERARCHY_REF',
         'placement belongs to a different definition',
       );
-    if (ref.unassigned) return this.unassigned;
+    if (ref.unassigned) {
+      this.computation.tick(this.unassigned.length);
+      return this.unassigned;
+    }
     const n = this.nodes.get(ref.key);
     if (!n || !this.reachable.has(ref.key))
       throw new HierarchyError('INVALID_HIERARCHY_REF', 'unknown definition occurrence');
@@ -1374,9 +1386,11 @@ export class HierarchyPlan {
       if (ref.property) {
         const group = groups.get(ref.property);
         if (!group) throw new HierarchyError('INVALID_HIERARCHY_REF', 'unknown property group');
+        this.computation.tick(group.ids.length);
         return group.ids.map((entity) => ({ key: n.key, entity, basis: 'property' }));
       }
       if (ref.entity) return [];
+      this.computation.tick(groups.size);
       return [...groups].map(([property, g]) => ({
         key: n.key,
         property,
@@ -1395,7 +1409,9 @@ export class HierarchyPlan {
     for (const b of this.definition.branches.filter(
       (b) => b.parent === ref.key && !b.alternative,
     )) {
-      for (const childId of this.reverse.get(b.key)?.get(entity.id) ?? [])
+      const childIds = this.reverse.get(b.key)?.get(entity.id) ?? [];
+      this.computation.tick(childIds.length);
+      for (const childId of childIds)
         rows.push({
           key: b.child,
           entity: childId,
@@ -1403,7 +1419,9 @@ export class HierarchyPlan {
           basis: b.via.kind === 'source' ? 'source-context' : 'model',
         });
     }
-    rows.push(...(this.derived.get(JSON.stringify([ref.key, ref.entity])) ?? []));
+    const derived = this.derived.get(JSON.stringify([ref.key, ref.entity])) ?? [];
+    this.computation.tick(derived.length);
+    for (const row of derived) rows.push(row);
     return rows;
   }
   page(options: HierarchyReadOptions, offset = 0): { page: HierarchyPage; next?: number } {

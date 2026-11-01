@@ -472,7 +472,9 @@ Default pages contain 20 items (maximum 100). Input is capped at 100,000 entitie
 and 2,000,000 logical link presentations, definitions at 500 entries per array,
 paths at four hops, placement depth at 32 and computation at 1,000,000
 visited items. Smaller `workBudget` is supported. Exhaustion fails explicitly
-with `HIERARCHY_LIMIT`, never a silently exact partial analysis. Metadata analysis
+with `HIERARCHY_LIMIT`, never a silently exact partial analysis. Repeated placement
+occurrences and child-count lookahead consume this budget before their arrays are
+allocated; even a small requested page can exceed it. Metadata analysis
 is bounded whole-scope work. Within one `readSnapshot` callback, repeated
 `hierarchy.read` calls reuse one analysis/placement plan for the same validated
 definition and work budget; individual scores are computed lazily once. Changing

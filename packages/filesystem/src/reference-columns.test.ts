@@ -96,3 +96,20 @@ it('rejects annotation shape, non-reference slots and competing selectors at com
     /without lore:markdown_selectors/,
   );
 });
+
+it('claims matching table links when frontmatter already owns the same value', () => {
+  const result = build(table, 'links: [B]\n');
+  expect(result.index.diagnostics?.filter((d) => d.severity === 'error')).toEqual([]);
+  expect(
+    (result.index.edges ?? []).filter((e) => e.from === 'A' && e.to === 'B').map((e) => e.relation),
+  ).toEqual(['links']);
+  expect(
+    (result.index.edges ?? []).some(
+      (e) => e.from === 'A' && e.to === 'C' && e.relation === 'references',
+    ),
+  ).toBe(true);
+  expect(result.index.artifacts.A?.data.links).toEqual(['B']);
+  expect(result.index.artifacts.A?.provenance?.properties?.links).toMatchObject({
+    representation: 'frontmatter',
+  });
+});

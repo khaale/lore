@@ -369,3 +369,48 @@ it('uses actual descendant distances and own neighbor types for individual score
     connectivityScore: 0,
   });
 });
+
+it('bounds repeated occurrences before materialization even when the requested page is tiny', () => {
+  const base = input();
+  const repeated: HierarchyInput = {
+    ...base,
+    nodes: () =>
+      Array.from({ length: 5000 }, (_, i) => ({
+        id: `n${i}`,
+        type: 'Folder',
+        file: '',
+        source: '',
+      })),
+    links: () => [],
+  };
+  const nodes = Array.from({ length: 50 }, (_, i) => ({
+    key: `t${i}`,
+    kind: 'type' as const,
+    type: 'Folder',
+  }));
+  for (const grouped of [false, true]) {
+    const d = validateHierarchy(base.schema, {
+      version: 1,
+      nodes: grouped
+        ? [
+            ...nodes,
+            {
+              key: 'g',
+              kind: 'group',
+              basis: 'schema-navigation',
+              label: 'All',
+              members: nodes.map((n) => n.key),
+            },
+          ]
+        : nodes,
+      roots: grouped ? ['g'] : nodes.map((n) => n.key),
+      branches: [],
+    });
+    const plan = new HierarchyPlan(new HierarchyComputation(repeated, grouped ? 11000 : 5000), d);
+    // Root and group expansion both fail before creating 250,000 occurrences;
+    // group directChildren lookahead is subject to the same finite budget.
+    expect(() => plan.page({ definition: d, limit: 1 })).toThrowError(
+      expect.objectContaining({ code: 'HIERARCHY_LIMIT' }),
+    );
+  }
+});

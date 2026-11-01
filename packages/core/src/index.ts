@@ -1001,10 +1001,24 @@ function materializeReferenceColumns(
       }
     }
     if (invalid) continue;
+    const claimColumnLinks = () => {
+      for (const cell of cells)
+        claimed.push(
+          ...candidate.links.filter(
+            (link) =>
+              link.span?.line === cell.span.line &&
+              link.span.column >= cell.span.column &&
+              link.span.column <= (cell.span.end_column ?? Infinity),
+          ),
+        );
+    };
     const existing = data[name],
       declared = Object.prototype.hasOwnProperty.call(data, name);
     if (existing !== undefined && (!isEmpty(existing) || (candidate.enriched && declared))) {
-      if (!candidate.enriched && markdownValuesEqual(slot, existing, values)) continue;
+      if (!candidate.enriched && markdownValuesEqual(slot, existing, values)) {
+        claimColumnLinks();
+        continue;
+      }
       error(
         name,
         candidate.enriched ? 'OWNERSHIP_CONFLICT' : 'MARKDOWN_FRONTMATTER_CONFLICT',
@@ -1022,6 +1036,7 @@ function materializeReferenceColumns(
       );
       continue;
     }
+    claimColumnLinks();
     data[name] = values;
     spans[name] = table.headerSpan;
     propertySources[name] = {
@@ -1038,14 +1053,6 @@ function materializeReferenceColumns(
         representation: 'markdown-table',
         span: cell.span,
       };
-      claimed.push(
-        ...candidate.links.filter(
-          (link) =>
-            link.span?.line === cell.span.line &&
-            link.span.column >= cell.span.column &&
-            link.span.column <= (cell.span.end_column ?? Infinity),
-        ),
-      );
     });
   }
   return {
