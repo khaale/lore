@@ -37,7 +37,7 @@
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   },
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Linked project knowledge in ordinary files: CLI, TypeScript SDK and programmatic tool calling.",
   "bin": {
     "lore": "./dist/cli.js"
